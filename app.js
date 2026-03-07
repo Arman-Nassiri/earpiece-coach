@@ -1,255 +1,41 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// CONFIG
+// GATE — SHA-256 hash of the access code. Never stored in plain text.
+// To change the password: run this in browser console:
+//   crypto.subtle.digest('SHA-256', new TextEncoder().encode('yourpassword'))
+//     .then(b => console.log([...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')))
 // ─────────────────────────────────────────────────────────────────────────────
-const SUPABASE_URL  = 'https://doesazgmozprijuwdeod.supabase.co';
-const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRvZXNhemdtb3pwcmlqdXdkZW9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI4Mzc3NDAsImV4cCI6MjA4ODQxMzc0MH0.48BUIFJ-Gj_3v4iPuacdKWHrq9grXn8tqQBtOopIMzQ';
-const STRIPE_KEY    = 'pk_live_51SlkakQ7H6bsl24k19Z26WwJbSA6yeiL7FapiXQaTThkvc6FbtctK8CUnwOZVqfK9WUZioTMCaSrrRcSyR7YBQMG005Pp6noS1';
-const STRIPE_PRICE  = 'price_1T88nWQ7H6bsl24kcGcZsQfU';
-// When hosted: replace with 'https://cue.gibsel.com'
-const APP_URL       = window.location.origin || 'https://cue.gibsel.com';
+const ACCESS_HASH = '89def7c4d970687427e7d350cb5cc6cbb9e8c3c70eaaefba30d8bd53c5083b6e';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SUPABASE CLIENT
-// ─────────────────────────────────────────────────────────────────────────────
-const { createClient } = supabase;
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON);
+let gateUnlocked = false;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AUTH STATE
-// ─────────────────────────────────────────────────────────────────────────────
-let currentUser    = null;
-let currentProfile = null;
-let authMode       = 'signup'; // 'signup' | 'login'
+async function submitGate() {
+  const val = (document.getElementById('gateInput').value || '').trim();
+  const status = document.getElementById('gateStatus');
+  const btn = document.getElementById('gateBtn');
+  if (!val) { status.textContent = 'Enter the access code.'; status.className = 'gate-status fail'; return; }
 
-async function loadProfile(userId) {
-  try {
-    const { data } = await sb.from('profiles').select('*').eq('id', userId).single();
-    currentProfile = data;
-  } catch(e) { currentProfile = null; }
-}
+  btn.disabled = true; btn.textContent = 'Checking…';
+  status.textContent = ''; status.className = 'gate-status';
 
-// On load: check if user is already logged in (Supabase persists session)
-(async function checkSession() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (session?.user) {
-    currentUser = session.user;
-    await loadProfile(session.user.id);
+  const hash = await sha256(val);
+  if (hash === ACCESS_HASH) {
+    gateUnlocked = true;
+    document.getElementById('gateInput').value = '';
     go('s-home');
+  } else {
+    status.textContent = 'Incorrect code.';
+    status.className = 'gate-status fail';
   }
-  // Also handle Stripe redirect back
-  handleCheckoutReturn();
-})();
-
-// Listen for auth state changes (e.g. email confirmation)
-sb.auth.onAuthStateChange(async (event, session) => {
-  if (event === 'SIGNED_IN' && session?.user) {
-    currentUser = session.user;
-    await loadProfile(session.user.id);
-  }
-  if (event === 'SIGNED_OUT') {
-    currentUser = null;
-    currentProfile = null;
-  }
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// AUTH SCREEN LOGIC
-// ─────────────────────────────────────────────────────────────────────────────
-function showLogin() {
-  authMode = 'login';
-  renderAuthMode();
-  go('s-auth');
+  btn.disabled = false; btn.textContent = 'Continue';
 }
 
-function toggleAuthMode() {
-  authMode = authMode === 'signup' ? 'login' : 'signup';
-  renderAuthMode();
-}
-
-function renderAuthMode() {
-  const isLogin = authMode === 'login';
-  document.getElementById('authTitle').textContent    = isLogin ? 'Welcome back'    : 'Create account';
-  document.getElementById('authSub').textContent      = isLogin ? 'Log in to your account.' : 'Sign up free. No credit card required.';
-  document.getElementById('authBtn').textContent      = isLogin ? 'Log in'          : 'Create account';
-  document.getElementById('authNameWrap').style.display  = isLogin ? 'none' : 'block';
-  document.getElementById('authForgotRow').style.display = isLogin ? 'block' : 'none';
-  document.getElementById('authToggleText').textContent  = isLogin ? "Don't have an account?" : 'Already have an account?';
-  document.getElementById('authToggleLink').textContent  = isLogin ? 'Sign up'       : 'Log in';
-  setAuthStatus('', '');
-}
-
-function setAuthStatus(msg, type) {
-  const el = document.getElementById('authStatus');
-  el.textContent = msg;
-  el.className = 'auth-status' + (type ? ' ' + type : '');
-}
-
-async function handleAuth() {
-  const email    = (document.getElementById('authEmail').value    || '').trim();
-  const password = (document.getElementById('authPassword').value || '').trim();
-  const btn      = document.getElementById('authBtn');
-
-  if (!email || !password) { setAuthStatus('Enter your email and password.', 'fail'); return; }
-  if (password.length < 8) { setAuthStatus('Password must be at least 8 characters.', 'fail'); return; }
-
-  btn.disabled = true;
-  btn.textContent = authMode === 'signup' ? 'Creating account…' : 'Logging in…';
-  setAuthStatus('', '');
-
-  try {
-    if (authMode === 'signup') {
-      const { error } = await sb.auth.signUp({ email, password });
-      if (error) throw error;
-      setAuthStatus('Check your email to confirm your account, then come back to log in.', 'ok');
-      // Switch to login mode after signup
-      setTimeout(() => { authMode = 'login'; renderAuthMode(); }, 2800);
-    } else {
-      const { data, error } = await sb.auth.signInWithPassword({ email, password });
-      if (error) throw error;
-      currentUser = data.user;
-      await loadProfile(data.user.id);
-      setAuthStatus('', '');
-      go('s-home');
-    }
-  } catch(err) {
-    let msg = err.message || 'Something went wrong.';
-    if (msg.includes('Invalid login')) msg = 'Incorrect email or password.';
-    if (msg.includes('already registered')) msg = 'This email is already registered. Try logging in.';
-    if (msg.includes('Email not confirmed')) msg = 'Please confirm your email first.';
-    setAuthStatus(msg, 'fail');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = authMode === 'signup' ? 'Create account' : 'Log in';
-  }
-}
-
-async function handleForgotPassword() {
-  const email = (document.getElementById('authEmail').value || '').trim();
-  if (!email) { setAuthStatus('Enter your email above first.', 'fail'); return; }
-  setAuthStatus('Sending reset link…', 'info');
-  const { error } = await sb.auth.resetPasswordForEmail(email, {
-    redirectTo: APP_URL + '/?reset=true'
-  });
-  if (error) { setAuthStatus(error.message, 'fail'); return; }
-  setAuthStatus('Reset link sent — check your email.', 'ok');
-}
-
-async function handleSignOut() {
-  await sb.auth.signOut();
-  currentUser = null; currentProfile = null;
-  SecureStore.clear();
-  go('s-launch');
-  toast('Signed out');
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STRIPE CHECKOUT
-// ─────────────────────────────────────────────────────────────────────────────
-const stripe = Stripe(STRIPE_KEY);
-
-async function startProCheckout() {
-  if (!currentUser) {
-    // Must be logged in to subscribe
-    toast('Create a free account first');
-    setTimeout(() => { authMode = 'signup'; renderAuthMode(); go('s-auth'); }, 600);
-    return;
-  }
-
-  const btn = document.getElementById('proCheckoutBtn');
-  btn.disabled = true;
-  btn.textContent = 'Opening checkout…';
-
-  try {
-    const { error } = await stripe.redirectToCheckout({
-      lineItems: [{ price: STRIPE_PRICE, quantity: 1 }],
-      mode: 'subscription',
-      successUrl: APP_URL + '/?checkout=success&session_id={CHECKOUT_SESSION_ID}',
-      cancelUrl:  APP_URL + '/?checkout=cancelled',
-      customerEmail: currentUser.email,
-      clientReferenceId: currentUser.id
-    });
-    if (error) throw error;
-  } catch(err) {
-    toast('Checkout error — try again');
-    btn.disabled = false;
-    btn.textContent = 'Get Pro — $19/mo';
-  }
-}
-
-function handleCheckoutReturn() {
-  const params = new URLSearchParams(window.location.search);
-  const status = params.get('checkout');
-  if (!status) return;
-
-  // Clean URL
-  window.history.replaceState({}, '', window.location.pathname);
-
-  if (status === 'success') {
-    // Payment went through — show home, profile will update via webhook
-    setTimeout(() => {
-      showModal({
-        title: 'Welcome to Pro 🎉',
-        body: 'Your subscription is active. Your account will reflect Pro status within a minute.',
-        confirmText: 'Let\'s go'
-      });
-    }, 800);
-  } else if (status === 'cancelled') {
-    setTimeout(() => toast('Checkout cancelled'), 400);
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ACCOUNT SCREEN
-// ─────────────────────────────────────────────────────────────────────────────
-function goAccount() {
-  if (!currentUser) {
-    // BYOK user — take them to sign up
-    authMode = 'signup'; renderAuthMode(); go('s-auth');
-    return;
-  }
-  renderAccountScreen();
-  go('s-account');
-}
-
-function renderAccountScreen() {
-  if (!currentUser) return;
-
-  document.getElementById('acctEmail').textContent = currentUser.email || '—';
-  const since = currentUser.created_at
-    ? 'Member since ' + new Date(currentUser.created_at).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-    : '';
-  document.getElementById('acctSince').textContent = since;
-
-  const plan    = currentProfile?.plan || 'free';
-  const isPro   = plan === 'pro';
-  const nameEl  = document.getElementById('acctPlanName');
-  const descEl  = document.getElementById('acctPlanDesc');
-  const badgeEl = document.getElementById('acctPlanBadge');
-  const actEl   = document.getElementById('acctPlanActions');
-
-  nameEl.textContent = isPro ? 'Pro' : 'Free';
-  descEl.textContent = isPro
-    ? (currentProfile?.valid_until ? 'Renews ' + new Date(currentProfile.valid_until).toLocaleDateString() : 'Active')
-    : 'Using your own API key';
-  badgeEl.innerHTML  = isPro ? '<span class="pro-badge">Pro</span>' : '';
-
-  actEl.innerHTML = isPro
-    ? `<button class="btn-ghost" onclick="openBillingPortal()">Manage billing &amp; cancel</button>`
-    : `<button class="btn" onclick="go('s-pricing')">Upgrade to Pro — $19/mo</button>`;
-
-  // Theme label
-  document.getElementById('acctThemeLabel').textContent = darkMode ? 'Dark mode' : 'Light mode';
-}
-
-function openBillingPortal() {
-  // Once your backend is live, this should call /api/billing-portal
-  // For now, open Stripe customer portal directly
-  window.open('https://billing.stripe.com/p/login/test_placeholder', '_blank');
-  toast('Opening billing portal…');
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// SECURITY: key lives only in a closure, never on window
+// SECURITY: API key lives only in a closure, never on window
 // ─────────────────────────────────────────────────────────────────────────────
 const SecureStore = (() => {
   let _mask = null, _masked = null;
@@ -377,39 +163,12 @@ function sanitize(str) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECURE API CALL — routes to server for Pro, direct for BYOK
+// SECURE API CALL
 // ─────────────────────────────────────────────────────────────────────────────
-const isPro = () => currentProfile?.plan === 'pro' && currentProfile?.subscription_status === 'active';
-
 async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
   const rl = RateLimit.check();
   if (!rl.ok) throw new Error(rl.reason);
 
-  // Pro users: route through server
-  if (isPro() && currentUser) {
-    const { data: { session } } = await sb.auth.getSession();
-    const jwt = session?.access_token;
-    if (!jwt) throw new Error('Session expired — please log in again.');
-
-    RateLimit.record();
-    let res;
-    try {
-      res = await fetch(APP_URL + '/api/coach', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + jwt },
-        body: JSON.stringify({ messages, maxTokens, jsonMode })
-      });
-    } catch(e) { throw new Error('Network error — check your connection.'); }
-
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}));
-      throw new Error(d?.error || 'Server error ' + res.status);
-    }
-    const d = await res.json();
-    return d.content;
-  }
-
-  // BYOK: direct call
   const key = SecureStore.get();
   if (!key) throw new Error('No API key — reload and enter your key.');
 
@@ -468,7 +227,7 @@ async function verifyKey(key, provider) {
       body: JSON.stringify(body)
     });
   } catch(netErr) {
-    throw new Error('Could not reach ' + p.name + '. Try opening this file in your browser.');
+    throw new Error('Could not reach ' + p.name + '. Check your connection.');
   }
   if (!res.ok) {
     let errMsg = 'Error ' + res.status;
@@ -483,31 +242,31 @@ async function verifyKey(key, provider) {
 // SCENARIO LIBRARY
 // ─────────────────────────────────────────────────────────────────────────────
 const LIBRARY = [
-  { id:'salary',    icon:'💼', iconSel:'💼', name:'Salary',           sub:'Job offer, raise, or promotion',
+  { id:'salary',    icon:'$', name:'Salary',           sub:'Job offer, raise, or promotion',
     anchors:[{l:'High',v:'$148,000'},{l:'Mid',v:'$142,000'},{l:'Floor',v:'$135,000'}],
     batna:'Competing offer at $128,000 from another company', zopa:'Their likely range: $130,000 – $150,000' },
-  { id:'rent',      icon:'🏠', iconSel:'🏠', name:'Rent',              sub:'Apartment or lease negotiation',
+  { id:'rent',      icon:'#', name:'Rent',              sub:'Apartment or lease negotiation',
     anchors:[{l:'High',v:'$2,100/mo'},{l:'Mid',v:'$2,200/mo'},{l:'Floor',v:'$2,350/mo'}],
     batna:'Comparable unit nearby listed at $2,150/mo', zopa:'Landlord likely flexible between $2,200 – $2,400' },
-  { id:'car',       icon:'🚗', iconSel:'🚗', name:'Car Dealer',        sub:'New or used vehicle price',
+  { id:'car',       icon:'~', name:'Car Dealer',        sub:'New or used vehicle price',
     anchors:[{l:'High',v:'$31,500 OTD'},{l:'Mid',v:'$33,000 OTD'},{l:'Floor',v:'$34,500 OTD'}],
     batna:'Same trim at competing dealer: $33,200 out the door', zopa:'Dealer invoice ~$30,800 — meaningful room exists' },
-  { id:'freelance', icon:'💻', iconSel:'💻', name:'Freelance Rate',    sub:'Hourly or project rate with a client',
+  { id:'freelance', icon:'/', name:'Freelance Rate',    sub:'Hourly or project rate with a client',
     anchors:[{l:'High',v:'$150/hr'},{l:'Mid',v:'$130/hr'},{l:'Floor',v:'$110/hr'}],
     batna:'Another client offering $105/hr for similar work', zopa:'Client likely has budget for $120–$145/hr' },
-  { id:'joboffer',  icon:'📋', iconSel:'📋', name:'Job Offer Counter', sub:'Push back on an existing offer',
+  { id:'joboffer',  icon:'+', name:'Job Offer Counter', sub:'Push back on an existing offer',
     anchors:[{l:'High',v:'$155,000'},{l:'Mid',v:'$148,000'},{l:'Floor',v:'$140,000'}],
     batna:'Current offer on the table: $132,000', zopa:'Recruiter hinted budget can stretch to $145–$150K' },
-  { id:'biz',       icon:'🤝', iconSel:'🤝', name:'Business Deal',     sub:'Partnership, contract, or vendor',
+  { id:'biz',       icon:'&', name:'Business Deal',     sub:'Partnership, contract, or vendor',
     anchors:[{l:'High',v:'$50,000'},{l:'Mid',v:'$42,000'},{l:'Floor',v:'$35,000'}],
     batna:'Alternative vendor quoted $34,000 for same scope', zopa:"Other party's budget appears to be $38,000–$48,000" },
-  { id:'severance', icon:'📄', iconSel:'📄', name:'Severance',         sub:'Negotiate exit terms with employer',
+  { id:'severance', icon:'x', name:'Severance',         sub:'Negotiate exit terms with employer',
     anchors:[{l:'High',v:'6 months pay'},{l:'Mid',v:'4 months pay'},{l:'Floor',v:'2 months pay'}],
     batna:'Standard policy offers 2 weeks per year of service', zopa:'Company has offered 6–8 weeks in similar departures' },
-  { id:'medical',   icon:'🏥', iconSel:'🏥', name:'Medical Bill',      sub:'Negotiate a hospital or provider bill',
+  { id:'medical',   icon:'+', name:'Medical Bill',      sub:'Negotiate a hospital or provider bill',
     anchors:[{l:'High',v:'50% reduction'},{l:'Mid',v:'35% reduction'},{l:'Floor',v:'20% reduction'}],
     batna:"Can set up a 12-month payment plan if they won't reduce", zopa:'Hospitals routinely settle for 40–60% of billed amount' },
-  { id:'custom',    icon:'＋', iconSel:'✕', name:'Custom',            sub:'Any negotiation, your terms',
+  { id:'custom',    icon:'*', name:'Custom',            sub:'Any negotiation, your terms',
     anchors:[{l:'High',v:''},{l:'Mid',v:''},{l:'Floor',v:''}], batna:'', zopa:'' }
 ];
 
@@ -532,15 +291,12 @@ let generatedOpener = '', micActive = false;
     const div = document.createElement('div');
     div.className = 'scenario-card';
     div.innerHTML = `
-      <div class="sc-icon">
-        <span class="sc-icon-text">${sc.icon}</span>
-        <span class="sc-icon-sel">${sc.iconSel}</span>
-      </div>
+      <div class="sc-icon">${sc.icon}</div>
       <div class="sc-text">
         <div class="sc-name">${sc.name}</div>
         <div class="sc-sub">${sc.sub}</div>
       </div>
-      <div class="sc-arr">›</div>`;
+      <div class="sc-arr">&#8250;</div>`;
     div.addEventListener('click', () => pickSC(div, sc));
     list.appendChild(div);
   });
@@ -553,15 +309,10 @@ function applyTheme(dark, save = true) {
   darkMode = dark;
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
   const btn = document.getElementById('themeBtn');
-  if (btn) btn.textContent = dark ? '🌙' : '☀️';
+  if (btn) btn.innerHTML = dark ? '&#9790;' : '&#9788;';
   if (save) localStorage.setItem('gc-theme', dark ? 'dark' : 'light');
 }
-function toggleTheme() {
-  applyTheme(!darkMode);
-  // Refresh account screen label if open
-  const lbl = document.getElementById('acctThemeLabel');
-  if (lbl) lbl.textContent = darkMode ? 'Dark mode' : 'Light mode';
-}
+function toggleTheme() { applyTheme(!darkMode); }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INLINE CONFIRM
@@ -687,7 +438,7 @@ async function submitKey() {
   status.textContent = 'Testing with a live call…'; status.className = 'key-verify-status spin';
   try {
     await verifyKey(raw, currentProvider);
-    status.textContent = '✓ Verified — loading…'; status.className = 'key-verify-status ok';
+    status.textContent = '✓ Verified'; status.className = 'key-verify-status ok';
     SecureStore.set(raw);
     if (currentProvider === 'azure') {
       document.getElementById('azureEndpoint').value = '';
@@ -695,7 +446,8 @@ async function submitKey() {
     } else {
       document.getElementById('apiKeyInput').value = '';
     }
-    setTimeout(() => go('s-home'), 600);
+    // Go to gate if not yet unlocked, otherwise go home
+    setTimeout(() => go(gateUnlocked ? 's-home' : 's-gate'), 600);
   } catch(err) {
     status.textContent = err.message; status.className = 'key-verify-status fail';
     btn.disabled = false; btn.textContent = 'Verify & Continue';
@@ -705,8 +457,7 @@ async function submitKey() {
 document.getElementById('apiKeyInput').addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
 document.getElementById('azureEndpoint').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('azureKey').focus(); });
 document.getElementById('azureKey').addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
-document.getElementById('authPassword').addEventListener('keydown', e => { if (e.key === 'Enter') handleAuth(); });
-document.getElementById('authEmail').addEventListener('keydown', e => { if (e.key === 'Enter') { if (authMode==='login') handleAuth(); else document.getElementById('authPassword').focus(); } });
+document.getElementById('gateInput').addEventListener('keydown', e => { if (e.key === 'Enter') submitGate(); });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HOME
@@ -727,6 +478,9 @@ function goPrep() {
 function buildPrep() {
   const sc = currentSC;
   document.getElementById('prepTitle').textContent = sc.name;
+  // Also update sidebar title for desktop
+  const sidebarTitle = document.getElementById('prepTitleSidebar');
+  if (sidebarTitle) sidebarTitle.textContent = sc.name;
   const wrap = document.getElementById('prepScroll');
 
   const customRow = sc.id === 'custom' ? `
@@ -772,12 +526,11 @@ function buildPrep() {
           </svg>
           Generate
         </button>
-        <button class="opener-regen-btn" id="openerRegenBtn" style="display:none" onclick="generateOpener()">↻ Regenerate</button>
+        <button class="opener-regen-btn" id="openerRegenBtn" style="display:none" onclick="generateOpener()">&#8635; Regenerate</button>
       </div>
     </div>
     <div style="height:8px"></div>`;
 
-  // Auto-resize textareas
   wrap.querySelectorAll('.textarea-field').forEach(ta => {
     ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
     ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
@@ -843,11 +596,14 @@ Return only the line.`
 function goLive() {
   stopMic();
   resetLive();
-  const { anc, customName } = getLiveValues();
-  document.getElementById('liveScene').textContent = currentSC.id === 'custom' ? (customName || 'Custom') : currentSC.name;
+  const { customName } = getLiveValues();
+  const sceneName = currentSC.id === 'custom' ? (customName || 'Custom') : currentSC.name;
+  document.getElementById('liveScene').textContent = sceneName;
+  const sidebarScene = document.getElementById('liveSceneSidebar');
+  if (sidebarScene) sidebarScene.textContent = sceneName;
   earOn = true;
   const earBtn = document.getElementById('earBtn');
-  if (earBtn) { earBtn.textContent = '🔈'; earBtn.classList.add('on'); }
+  if (earBtn) { earBtn.textContent = 'EAR ON'; earBtn.classList.add('on'); }
   go('s-live');
   setTimeout(startMic, 420);
 }
@@ -864,8 +620,9 @@ function resetLive() {
 }
 
 async function confirmEnd() {
+  const btn = document.getElementById('endBtn') || document.querySelector('.end-btn');
   inlineConfirm(
-    document.getElementById('endBtn'),
+    btn,
     () => { stopMic(); earOn = true; go('s-home'); },
     { yesLabel: 'End', yesClass: 'danger' }
   );
@@ -1012,7 +769,8 @@ function speak(text) {
 function toggleEar() {
   earOn = !earOn;
   const b = document.getElementById('earBtn');
-  b.textContent = earOn ? '🔈' : '🔇'; b.classList.toggle('on', earOn);
+  b.textContent = earOn ? 'EAR ON' : 'EAR OFF';
+  b.classList.toggle('on', earOn);
   toast(earOn ? 'Earpiece on' : 'Earpiece off');
 }
 
@@ -1034,4 +792,4 @@ function toast(msg) {
 // ─────────────────────────────────────────────────────────────────────────────
 // CLEANUP
 // ─────────────────────────────────────────────────────────────────────────────
-window.addEventListener('beforeunload', () => SecureStore.clear())
+window.addEventListener('beforeunload', () => SecureStore.clear());

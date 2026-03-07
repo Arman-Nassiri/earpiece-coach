@@ -25,7 +25,7 @@
   </div>
 </div>
 
-<!-- S-LAUNCH: entry screen -->
+<!-- S-LAUNCH -->
 <div class="screen active" id="s-launch">
   <div class="launch-inner">
     <div class="launch-top">
@@ -33,68 +33,27 @@
       <div class="wordmark-sub">Your AI negotiation coach,<br>whispering in your ear.</div>
     </div>
     <div class="launch-actions">
-      <button class="btn" onclick="go('s-auth')">Sign up free</button>
-      <div class="launch-divider">
-        <div class="launch-divider-line"></div>
-        <div class="launch-divider-text">or</div>
-        <div class="launch-divider-line"></div>
-      </div>
-      <button class="btn-ghost" onclick="go('s-key')">Continue with your own API key</button>
-    </div>
-    <div class="launch-footnote">Already have an account? <span style="color:var(--text);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px" onclick="showLogin()">Log in</span></div>
-  </div>
-</div>
-
-<!-- S-AUTH: sign up / log in -->
-<div class="screen" id="s-auth">
-  <div class="auth-inner">
-    <div class="auth-back-row">
-      <div class="auth-back" onclick="go('s-launch')">←</div>
-    </div>
-    <div class="auth-title" id="authTitle">Create account</div>
-    <div class="auth-sub" id="authSub">Sign up free. No credit card required.</div>
-    <div class="auth-fields">
-      <div id="authNameWrap">
-        <div class="field-label">Full name</div>
-        <input class="field-input" id="authName" type="text" placeholder="Your name" autocomplete="name" autocorrect="off"/>
-      </div>
-      <div>
-        <div class="field-label">Email</div>
-        <input class="field-input" id="authEmail" type="email" placeholder="you@example.com" autocomplete="email" autocapitalize="off"/>
-      </div>
-      <div>
-        <div class="field-label">Password</div>
-        <input class="field-input" id="authPassword" type="password" placeholder="At least 8 characters" autocomplete="new-password"/>
-      </div>
-      <div id="authForgotRow" style="display:none">
-        <div class="auth-forgot" onclick="handleForgotPassword()">Forgot password?</div>
-      </div>
-    </div>
-    <div class="auth-status" id="authStatus"></div>
-    <button class="btn" id="authBtn" onclick="handleAuth()">Create account</button>
-    <div class="auth-toggle">
-      <span id="authToggleText">Already have an account?</span>
-      <span class="auth-toggle-link" id="authToggleLink" onclick="toggleAuthMode()">Log in</span>
+      <button class="btn" onclick="go('s-key')">Get started</button>
     </div>
   </div>
 </div>
 
-<!-- S0: KEY (BYOK) -->
+<!-- S-KEY: API key entry -->
 <div class="screen" id="s-key">
   <div class="key-inner">
     <div class="key-back-row">
-      <div class="auth-back" onclick="go('s-launch')">←</div>
+      <div class="key-back" onclick="go('s-launch')">&#8592;</div>
     </div>
     <div class="key-top">
       <div class="key-title">Your API Key</div>
-      <div class="key-sub">Use your own key from any supported provider. Free forever.</div>
+      <div class="key-sub">Use your own key from any supported provider.</div>
 
       <div class="field-label">Provider</div>
       <div class="provider-tabs" id="providerTabs">
         <button class="ptab active" data-provider="openai">OpenAI</button>
         <button class="ptab" data-provider="anthropic">Anthropic</button>
         <button class="ptab" data-provider="google">Google</button>
-        <button class="ptab" data-provider="azure">Microsoft</button>
+        <button class="ptab" data-provider="azure">Azure</button>
         <button class="ptab" data-provider="meta">Meta</button>
       </div>
 
@@ -112,7 +71,7 @@
       </div>
 
       <div class="security-badge" style="margin-top:14px;">
-        <div class="security-badge-icon">🔒</div>
+        <div class="security-badge-icon">TLS</div>
         <div class="security-badge-text">
           <strong>Memory-only.</strong> Your key is never stored or logged — sent directly to your provider over HTTPS.
         </div>
@@ -120,56 +79,97 @@
       <p class="key-note" id="keyNote">Key goes directly to api.openai.com — no server in the middle.</p>
     </div>
     <div>
-      <button class="btn" id="continueBtn" onclick="submitKey()">Verify & Continue</button>
+      <button class="btn" id="continueBtn" onclick="submitKey()">Verify &amp; Continue</button>
       <div class="key-verify-status" id="keyVerifyStatus"></div>
     </div>
   </div>
 </div>
 
+<!-- S-GATE: password screen -->
+<div class="screen" id="s-gate">
+  <div class="gate-inner">
+    <div class="gate-top">
+      <div class="gate-title">Access code</div>
+      <div class="gate-sub">Enter the access code to continue.</div>
+      <div class="field-label">Code</div>
+      <input class="field-input" id="gateInput" type="password" placeholder="Enter code…" autocomplete="off" spellcheck="false"/>
+      <div class="gate-status" id="gateStatus"></div>
+    </div>
+    <button class="btn" id="gateBtn" onclick="submitGate()">Continue</button>
+  </div>
+</div>
+
 <!-- S1: HOME -->
 <div class="screen" id="s-home">
-  <div class="home-nav">
-    <div class="home-wordmark">Gibsel Cue</div>
+  <!-- Mobile: top bar / Desktop: sidebar -->
+  <div class="home-sidebar">
+    <div>
+      <div class="home-wordmark">Gibsel Cue</div>
+      <div class="home-sub">What are you walking into?</div>
+    </div>
     <div class="home-nav-right">
-      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">☀️</button>
-      <button class="icon-btn" id="accountBtn" onclick="goAccount()" style="font-size:15px;">👤</button>
+      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
     </div>
   </div>
-  <div class="home-sub">What are you walking into?</div>
-  <div class="section-label">Scenario</div>
-  <div class="card-list" id="cardList"></div>
-  <div class="home-cta">
-    <button class="btn" onclick="goPrep()">See Prep Brief</button>
+
+  <!-- Mobile: inline / Desktop: main col -->
+  <div class="home-main">
+    <div class="section-label">Scenario</div>
+    <div class="card-list" id="cardList"></div>
+    <div class="home-cta">
+      <button class="btn" onclick="goPrep()">See Prep Brief</button>
+    </div>
   </div>
 </div>
 
 <!-- S2: PREP -->
 <div class="screen" id="s-prep">
+  <!-- Desktop sidebar -->
+  <div class="prep-sidebar">
+    <button class="nav-back" onclick="go('s-home')" style="margin-bottom:24px;">&#8592;</button>
+    <div class="nav-title" id="prepTitleSidebar">—</div>
+    <div class="nav-chip" style="margin-top:8px;align-self:flex-start;">Prep</div>
+  </div>
+
+  <!-- Mobile nav bar -->
   <div class="nav-bar">
-    <button class="nav-back" onclick="go('s-home')">←</button>
+    <button class="nav-back" onclick="go('s-home')">&#8592;</button>
     <div class="nav-title" id="prepTitle">—</div>
     <div class="nav-chip">Prep</div>
   </div>
-  <div class="edit-hint">
-    <div class="edit-hint-text"><strong>Every field is editable.</strong> Tap any number to change it.</div>
-  </div>
-  <div class="prep-scroll" id="prepScroll"></div>
-  <div class="prep-cta">
-    <button class="btn" onclick="goLive()">Go Live</button>
+
+  <!-- Main content -->
+  <div class="prep-main">
+    <div class="edit-hint">
+      <div class="edit-hint-text"><strong>Every field is editable.</strong> Tap any number to change it.</div>
+    </div>
+    <div class="prep-scroll" id="prepScroll"></div>
+    <div class="prep-cta">
+      <button class="btn" onclick="goLive()">Go Live</button>
+    </div>
   </div>
 </div>
 
 <!-- S3: LIVE -->
 <div class="screen" id="s-live">
+  <!-- Desktop sidebar -->
+  <div class="live-sidebar">
+    <div class="live-pill"><div class="live-dot"></div><div class="live-pill-text">Live</div></div>
+    <div class="live-scene-name" id="liveSceneSidebar">—</div>
+    <button class="end-btn" onclick="confirmEnd()">End session</button>
+  </div>
+
+  <!-- Mobile nav bar -->
   <div class="live-nav">
     <div class="live-pill"><div class="live-dot"></div><div class="live-pill-text">Live</div></div>
     <div class="live-scene-name" id="liveScene">—</div>
     <button class="end-btn" id="endBtn" onclick="confirmEnd()">End</button>
   </div>
+
   <div class="live-body">
     <div class="coaching-card" id="coachCard">
       <div class="c-idle" id="cIdle">
-        <div class="c-idle-icon">👂</div>
+        <div class="c-idle-icon"></div>
         <div class="c-idle-text">Listening for them to speak. Your line appears here.</div>
       </div>
       <div class="c-result" id="cResult">
@@ -177,8 +177,8 @@
         <div class="c-line" id="cLine">—</div>
         <div class="c-advice" id="cAdvice">—</div>
         <div class="c-actions">
-          <button class="btn-said" onclick="markSaid()">Said it ✓</button>
-          <button class="btn-ear on" id="earBtn" onclick="toggleEar()">🔈</button>
+          <button class="btn-said" onclick="markSaid()">Said it &#10003;</button>
+          <button class="btn-ear on" id="earBtn" onclick="toggleEar()">EAR ON</button>
         </div>
       </div>
     </div>
@@ -200,148 +200,8 @@
   </div>
 </div>
 
-<!-- S-PRICING -->
-<div class="screen" id="s-pricing">
-  <div class="pricing-nav">
-    <button class="nav-back" onclick="go('s-home')">←</button>
-    <div class="nav-title">Plans</div>
-  </div>
-  <div class="pricing-scroll">
-    <div class="pricing-header">
-      <div class="pricing-title">Upgrade your edge.</div>
-      <div class="pricing-sub">No API key needed on Pro. We handle the AI so you can focus on the deal.</div>
-    </div>
-
-    <!-- FREE -->
-    <div class="plan-card">
-      <div class="plan-header">
-        <div class="plan-name">Free</div>
-      </div>
-      <div class="plan-price">
-        <div class="plan-price-free">Free forever</div>
-      </div>
-      <div class="plan-features">
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>All scenarios and prep briefs</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Real-time coaching (your API key)</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>AI-generated opening line</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>All AI providers supported</span></div>
-        <div class="plan-feature"><span class="plan-feature-x">—</span><span style="color:var(--text3)">No account required</span></div>
-      </div>
-      <button class="plan-cta-btn secondary" onclick="go('s-key')">Use with your own key</button>
-    </div>
-
-    <!-- PRO -->
-    <div class="plan-card featured">
-      <div class="plan-header">
-        <div class="plan-name">Pro</div>
-        <div class="plan-badge popular">Most popular</div>
-      </div>
-      <div class="plan-price">
-        <div class="plan-price-main">$19<span>/month</span></div>
-      </div>
-      <div class="plan-features">
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Everything in Free</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>No API key needed — we handle it</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Session history (last 30 days)</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Post-session debrief &amp; AI verdict</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Priority coaching speed</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Earpiece voice selection</span></div>
-      </div>
-      <button class="plan-cta-btn primary" id="proCheckoutBtn" onclick="startProCheckout()">Get Pro — $19/mo</button>
-    </div>
-
-    <!-- PREMIUM -->
-    <div class="plan-card muted">
-      <div class="plan-header">
-        <div class="plan-name">Premium</div>
-        <div class="plan-badge soon">Coming soon</div>
-      </div>
-      <div class="plan-price">
-        <div class="plan-price-main">$49<span>/month</span></div>
-      </div>
-      <div class="plan-features">
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Everything in Pro</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Unlimited session history</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Practice mode — AI plays the other side</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Industry-specific coaching (sales, real estate, legal)</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Shareable pre-session brief PDF</span></div>
-      </div>
-      <button class="plan-cta-btn disabled" disabled>Notify me when available</button>
-    </div>
-
-    <!-- TEAMS -->
-    <div class="plan-card muted">
-      <div class="plan-header">
-        <div class="plan-name">Teams</div>
-        <div class="plan-badge soon">Coming soon</div>
-      </div>
-      <div class="plan-price">
-        <div class="plan-price-main">$39<span>/seat/mo</span></div>
-      </div>
-      <div class="plan-features">
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Everything in Premium</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Shared team scenario library</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Manager dashboard &amp; analytics</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Slack / CRM integrations</span></div>
-        <div class="plan-feature"><span class="plan-feature-check">✓</span><span>Onboarding call included</span></div>
-      </div>
-      <button class="plan-cta-btn disabled" disabled>Notify me when available</button>
-    </div>
-
-    <div class="pricing-note">Cancel anytime. No contracts. Billed monthly.<br>Questions? hi@gibsel.com</div>
-  </div>
-</div>
-
-<!-- S-ACCOUNT -->
-<div class="screen" id="s-account">
-  <div class="account-nav">
-    <button class="nav-back" onclick="go('s-home')">←</button>
-    <div class="nav-title">Account</div>
-  </div>
-  <div class="account-scroll">
-
-    <div class="account-card">
-      <div class="account-card-label">Profile</div>
-      <div class="account-email" id="acctEmail">—</div>
-      <div class="account-since" id="acctSince">—</div>
-    </div>
-
-    <div class="account-card">
-      <div class="account-card-label">Plan</div>
-      <div class="account-plan-row">
-        <div class="account-plan-info">
-          <div class="account-plan-name" id="acctPlanName">Free</div>
-          <div class="account-plan-desc" id="acctPlanDesc">Using your own API key</div>
-        </div>
-        <div id="acctPlanBadge"></div>
-      </div>
-      <div style="margin-top:16px; display:flex; flex-direction:column; gap:8px;" id="acctPlanActions">
-        <!-- Populated by JS based on plan -->
-      </div>
-    </div>
-
-    <div class="account-card">
-      <div class="account-card-label">Settings</div>
-      <button class="account-row-btn" onclick="toggleTheme()">
-        <span class="account-row-label">Appearance</span>
-        <span class="account-row-arr" id="acctThemeLabel">Light mode</span>
-      </button>
-      <button class="account-row-btn" id="acctSignOutBtn" onclick="handleSignOut()">
-        <span class="account-row-label danger">Sign out</span>
-        <span class="account-row-arr">→</span>
-      </button>
-    </div>
-
-  </div>
-</div>
-
 <div class="toast" id="toast"></div>
 
-<!-- Third-party SDKs -->
-<script src="https://js.stripe.com/v3/"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-<!-- App -->
 <script src="app.js"></script>
 </body>
 </html>
