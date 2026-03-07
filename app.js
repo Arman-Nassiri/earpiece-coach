@@ -319,6 +319,24 @@ let generatedOpener = '', micActive = false;
   const saved = localStorage.getItem('gc-theme');
   if (saved === 'dark') applyTheme(true, false);
 
+  // Typewriter on subtitle
+  const twEl = document.getElementById('typewriterText');
+  if (twEl) {
+    const lines = ['Your AI negotiation coach,\nwhispering in your ear.'];
+    const full = lines[0];
+    let i = 0;
+    const delay = 28; // ms per character — fast but readable
+    function type() {
+      if (i <= full.length) {
+        twEl.innerHTML = full.slice(0, i).replace(/\n/g, '<br>');
+        i++;
+        setTimeout(type, delay);
+      }
+      // cursor keeps blinking via CSS after done
+    }
+    setTimeout(type, 420); // slight pause before starting
+  }
+
   const list = document.getElementById('cardList');
   LIBRARY.forEach(sc => {
     const div = document.createElement('div');

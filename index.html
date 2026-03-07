@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
 <meta name="mobile-web-app-capable" content="yes"/>
 <title>Gibsel Cue</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico"/>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"/>
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png"/>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="styles.css"/>
 </head>
@@ -38,7 +41,7 @@
   <div class="launch-inner">
     <div class="launch-top">
       <div class="wordmark">Gibsel Cue</div>
-      <div class="wordmark-sub">Your AI negotiation coach,<br>whispering in your ear.</div>
+      <div class="wordmark-sub"><span id="typewriterText"></span><span class="tw-cursor">|</span></div>
     </div>
     <div class="launch-actions">
       <button class="btn" onclick="go('s-key')">Get started</button>
@@ -168,7 +171,13 @@
     <div class="live-scene-name" id="liveSceneSidebar">—</div>
     <div class="ear-toggle-sidebar">
       <button class="ear-toggle-btn" id="earBtnSidebar" onclick="toggleEar()">
-        <span class="ear-toggle-icon">&#127911;</span>
+        <span class="ear-toggle-icon">
+          <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="7.5" cy="7.5" r="2.5" fill="currentColor"/>
+            <path d="M3 7.5a4.5 4.5 0 019 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            <path d="M1 7.5a6.5 6.5 0 0113 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.45"/>
+          </svg>
+        </span>
         <span class="ear-toggle-label" id="earBtnSidebarLabel">Earpiece on</span>
       </button>
     </div>
@@ -179,7 +188,13 @@
   <div class="live-nav">
     <div class="live-pill"><div class="live-dot"></div><div class="live-pill-text">Live</div></div>
     <div class="live-scene-name" id="liveScene">—</div>
-    <button class="ear-toggle-nav" id="earBtnNav" onclick="toggleEar()" title="Toggle earpiece">&#127911;</button>
+    <button class="ear-toggle-nav" id="earBtnNav" onclick="toggleEar()" title="Toggle earpiece">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="7.5" cy="7.5" r="2.5" fill="currentColor"/>
+          <path d="M3 7.5a4.5 4.5 0 019 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          <path d="M1 7.5a6.5 6.5 0 0113 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity="0.45"/>
+        </svg>
+      </button>
     <button class="end-btn" id="endBtn" onclick="confirmEnd(this)">End</button>
   </div>
 
