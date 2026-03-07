@@ -105,19 +105,6 @@
   </div>
 </div>
 
-<!-- S-GATE: password screen -->
-<div class="screen" id="s-gate">
-  <div class="gate-inner">
-    <div class="gate-top">
-      <div class="gate-title">Access code</div>
-      <div class="gate-sub">Enter the access code to continue.</div>
-      <div class="field-label">Code</div>
-      <input class="field-input" id="gateInput" type="password" placeholder="Enter code…" autocomplete="new-password" spellcheck="false"/>
-      <div class="gate-status" id="gateStatus"></div>
-    </div>
-    <button class="btn" id="gateBtn" onclick="submitGate()">Continue</button>
-  </div>
-</div>
 
 <!-- S1: HOME -->
 <div class="screen" id="s-home">
@@ -129,6 +116,11 @@
     <div class="home-sidebar-actions">
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
       <button class="icon-btn" onclick="changeKey()" title="Change API key">&#8644;</button>
+      <button class="icon-btn" onclick="goChat()" title="AI Chat" id="chatIconBtn">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14 1H2C1.44772 1 1 1.44772 1 2V10C1 10.5523 1.44772 11 2 11H5V14.5L9.5 11H14C14.5523 11 15 10.5523 15 10V2C15 1.44772 14.5523 1 14 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </div>
   </div>
 
@@ -221,6 +213,89 @@
         <div class="vb"></div><div class="vb"></div><div class="vb"></div>
         <div class="vb"></div><div class="vb"></div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- S-CHAT -->
+<div class="screen" id="s-chat">
+  <!-- Desktop sidebar -->
+  <div class="chat-sidebar">
+    <button class="nav-back" onclick="go('s-home')" style="margin-bottom:24px;align-self:flex-start;">&#8592;</button>
+    <div class="chat-sidebar-title">AI Chat</div>
+    <div class="chat-sidebar-sub">Your negotiation AI, available anytime.</div>
+    <div class="chat-bot-nav" id="chatBotNav">
+      <button class="chat-bot-nav-item active" data-bot="coach" onclick="switchBot('coach',this)">
+        <span class="chat-bot-nav-name">Coach Chat</span>
+        <span class="chat-bot-nav-sub">Strategy &amp; mindset</span>
+      </button>
+      <button class="chat-bot-nav-item" data-bot="advisor" onclick="switchBot('advisor',this)">
+        <span class="chat-bot-nav-name">Scenario Advisor</span>
+        <span class="chat-bot-nav-sub">Build your prep brief</span>
+      </button>
+      <button class="chat-bot-nav-item" data-bot="intel" onclick="switchBot('intel',this)">
+        <span class="chat-bot-nav-name">Intel Chat</span>
+        <span class="chat-bot-nav-sub">Know your counterpart</span>
+      </button>
+    </div>
+    <div class="chat-sidebar-footer" id="chatSidebarFooter">—</div>
+  </div>
+
+  <!-- Mobile nav -->
+  <div class="nav-bar" id="chatNavBar">
+    <button class="nav-back" id="chatBackBtn" onclick="chatBack()">&#8592;</button>
+    <div class="nav-title" id="chatNavTitle">AI Chat</div>
+    <div class="nav-chip" id="chatNavChip" style="visibility:hidden;">Chat</div>
+  </div>
+
+  <!-- Bot select (mobile only shows this first) -->
+  <div class="chat-bot-select" id="chatBotSelect">
+    <div class="chat-bot-select-label">Choose your AI</div>
+    <div class="chat-bot-cards">
+      <button class="chat-bot-card" onclick="switchBot('coach', this)">
+        <div class="chat-bot-card-icon">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2C5.134 2 2 5.134 2 9s3.134 7 7 7 7-3.134 7-7-3.134-7-7-7zm0 3a2 2 0 110 4 2 2 0 010-4zm0 9.5a5.25 5.25 0 01-4.5-2.55C4.525 10.46 7.15 9.75 9 9.75s4.475.71 4.5 2.2A5.25 5.25 0 019 14.5z" fill="currentColor"/></svg>
+        </div>
+        <div class="chat-bot-card-text">
+          <div class="chat-bot-card-name">Coach Chat</div>
+          <div class="chat-bot-card-desc">Ask anything about negotiation strategy, tactics, mindset, and real-time decisions.</div>
+        </div>
+        <div class="chat-bot-card-arr">&#8250;</div>
+      </button>
+      <button class="chat-bot-card" onclick="switchBot('advisor', this)">
+        <div class="chat-bot-card-icon">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3 3h12v2H3V3zm0 4h8v2H3V7zm0 4h10v2H3v-2zm12 0l-3 3v-3h3z" fill="currentColor"/></svg>
+        </div>
+        <div class="chat-bot-card-text">
+          <div class="chat-bot-card-name">Scenario Advisor</div>
+          <div class="chat-bot-card-desc">Describe your situation. It interviews you, picks the right scenario, and fills your prep brief automatically.</div>
+        </div>
+        <div class="chat-bot-card-arr">&#8250;</div>
+      </button>
+      <button class="chat-bot-card" onclick="switchBot('intel', this)">
+        <div class="chat-bot-card-icon">
+          <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><circle cx="9" cy="9" r="7" stroke="currentColor" stroke-width="1.5"/><path d="M9 8v5M9 6v.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        </div>
+        <div class="chat-bot-card-text">
+          <div class="chat-bot-card-name">Intel Chat</div>
+          <div class="chat-bot-card-desc">Tell it who you're negotiating with. Get a profile of their likely priorities, pressure points, and constraints.</div>
+        </div>
+        <div class="chat-bot-card-arr">&#8250;</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Chat view -->
+  <div class="chat-view" id="chatView">
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-area">
+      <div class="chat-input-row">
+        <textarea class="chat-textarea" id="chatInput" placeholder="Type a message…" rows="1" spellcheck="false"></textarea>
+        <button class="chat-send-btn" id="chatSendBtn" onclick="chatSend()">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M14 8L2 2l2.5 6L2 14l12-6z" fill="currentColor"/></svg>
+        </button>
+      </div>
+      <div class="chat-footnote" id="chatFootnote">—</div>
     </div>
   </div>
 </div>

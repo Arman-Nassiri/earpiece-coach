@@ -1,37 +1,4 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// GATE — SHA-256 hash only. Password never stored in plain text.
-// ─────────────────────────────────────────────────────────────────────────────
-const ACCESS_HASH = '89def7c4d970687427e7d350cb5cc6cbb9e8c3c70eaaefba30d8bd53c5083b6e';
-
-let gateUnlocked = false;
-
-async function submitGate() {
-  const val = (document.getElementById('gateInput').value || '').trim();
-  const status = document.getElementById('gateStatus');
-  const btn = document.getElementById('gateBtn');
-  if (!val) { status.textContent = 'Enter the access code.'; status.className = 'gate-status fail'; return; }
-
-  btn.disabled = true; btn.textContent = 'Checking…';
-  status.textContent = ''; status.className = 'gate-status';
-
-  const hash = await sha256(val);
-  if (hash === ACCESS_HASH) {
-    document.getElementById('gateInput').value = '';
-    gateUnlocked = true;
-    go('s-home');
-  } else {
-    status.textContent = 'Incorrect code.';
-    status.className = 'gate-status fail';
-    btn.disabled = false; btn.textContent = 'Continue';
-  }
-}
-
-async function sha256(str) {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
-  return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SECURITY: API key in closure only
 // ─────────────────────────────────────────────────────────────────────────────
 const SecureStore = (() => {
@@ -544,7 +511,7 @@ async function submitKey() {
     } else {
       document.getElementById('apiKeyInput').value = '';
     }
-    setTimeout(() => go(gateUnlocked ? 's-home' : 's-gate'), 600);
+    setTimeout(() => go('s-home'), 600);
   } catch(err) {
     status.textContent = err.message; status.className = 'key-verify-status fail';
     btn.disabled = false; btn.textContent = 'Verify & Continue';
@@ -554,7 +521,6 @@ async function submitKey() {
 document.getElementById('apiKeyInput').addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
 document.getElementById('azureEndpoint').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('azureKey').focus(); });
 document.getElementById('azureKey').addEventListener('keydown', e => { if (e.key === 'Enter') submitKey(); });
-document.getElementById('gateInput').addEventListener('keydown', e => { if (e.key === 'Enter') submitGate(); });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HOME
@@ -900,6 +866,280 @@ function toast(msg) {
   t.textContent = msg; t.classList.add('show');
   clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove('show'), 1800);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHAT ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CHAT_BOTS = {
+  coach: {
+    name: 'Coach Chat',
+    chip: 'Coach',
+    system: `You are an expert negotiation coach — direct, sharp, and practical. You've studied every major framework (BATNA, anchoring, mirroring, silence, ZOPA, Ackermann) and you've coached people through salary negotiations, real estate deals, business contracts, and high-stakes boardroom moments.
+
+Your job: answer the user's negotiation questions with specific, tactical advice. No filler, no generic platitudes. Be bold. When they're wrong, tell them. When they have an edge, push them to use it.
+
+Always end your first message with a concrete, specific question that invites them to describe their situation.`,
+    opener: `I'm your negotiation coach — think of me as the voice in your ear before the big conversation.\n\nI can help you with anchoring strategy, handling pressure tactics, knowing when to walk, what to say when they lowball you, or just thinking through your position.\n\nWhat are you walking into?`
+  },
+  advisor: {
+    name: 'Scenario Advisor',
+    chip: 'Advisor',
+    system: `You are a negotiation scenario advisor. Your job is to interview the user, understand their negotiation situation, and then fill out a prep brief for them.
+
+Through the conversation, gather:
+1. What kind of negotiation it is (salary, rent, car, freelance, business deal, medical bill, real estate, or other)
+2. Their high anchor (the first number they'll throw out)
+3. Their mid target (what they'd be happy with)
+4. Their floor (the minimum they'd accept)
+5. Their BATNA (best alternative if this falls through)
+6. The likely range (what the other party probably has as budget/flexibility)
+
+Once you have enough information (you don't need to ask all questions explicitly — infer what you can), respond with a special JSON block inside your message using exactly this format on its own line:
+SCENARIO_FILL:{"id":"SCENARIO_ID","anchors":[{"l":"High","v":"VALUE"},{"l":"Mid","v":"VALUE"},{"l":"Floor","v":"VALUE"}],"batna":"BATNA TEXT","zopa":"ZOPA TEXT","customName":"CUSTOM NAME IF NEEDED"}
+
+For SCENARIO_ID, choose the closest match from: salary, rent, car, freelance, joboffer, biz, severance, medical, realestate, equity, agency, raise, custom
+Only use "custom" if nothing fits.
+If custom, set customName to a short description.
+
+Before giving the JSON, tell the user you've built their brief and are sending them there now. Keep it warm and confident.
+
+Ask questions naturally, one or two at a time. Don't make it feel like a form. Lead with curiosity.
+
+Start by asking what they're negotiating — keep it open-ended.`,
+    opener: `I'm your Scenario Advisor. Tell me about your negotiation and I'll build your entire prep brief for you — anchors, BATNA, the works — automatically.\n\nWhat are you negotiating?`
+  },
+  intel: {
+    name: 'Intel Chat',
+    chip: 'Intel',
+    system: `You are a negotiation intelligence analyst. Your job is to help the user understand who they're negotiating with — their likely motivations, constraints, pressure points, and decision-making patterns.
+
+You build profiles of counterparts: hiring managers, landlords, car dealers, clients, executives, medical billing departments — anyone. You draw on psychology, organizational behavior, and negotiation theory to give the user an edge.
+
+Be specific. Generic advice is useless. Push the user to give you details so you can give them sharper intelligence.
+
+Always end your first message with a direct question about who they're negotiating with.`,
+    opener: `I'm your Intel analyst. Before you walk in, you should know exactly who you're dealing with — what they want, what they fear, where they have flexibility, and where they don't.\n\nWho are you negotiating with?`
+  }
+};
+
+let chatHistory = [];
+let chatBot = 'coach';
+let chatTyping = false;
+let chatMobileHasBot = false;
+
+function goChat() {
+  chatMobileHasBot = false;
+  chatHistory = [];
+  chatBot = 'coach';
+  // Reset to select view on mobile, direct to chat on desktop
+  const isMobile = window.innerWidth < 768;
+  const botSelect = document.getElementById('chatBotSelect');
+  const chatView  = document.getElementById('chatView');
+  const navTitle  = document.getElementById('chatNavTitle');
+  const navChip   = document.getElementById('chatNavChip');
+  botSelect.style.display = isMobile ? 'flex' : 'none';
+  chatView.classList.toggle('visible', !isMobile);
+  navTitle.textContent = 'AI Chat';
+  navChip.style.visibility = 'hidden';
+  if (!isMobile) {
+    // Desktop: load default bot (coach) straight in
+    loadChatBot('coach');
+    setActiveSidebarBot('coach');
+  }
+  go('s-chat');
+}
+
+function chatBack() {
+  if (chatMobileHasBot && window.innerWidth < 768) {
+    // Go back to bot select
+    chatMobileHasBot = false;
+    document.getElementById('chatBotSelect').style.display = 'flex';
+    document.getElementById('chatView').classList.remove('visible');
+    document.getElementById('chatNavTitle').textContent = 'AI Chat';
+    document.getElementById('chatNavChip').style.visibility = 'hidden';
+  } else {
+    go('s-home');
+  }
+}
+
+function setActiveSidebarBot(bot) {
+  document.querySelectorAll('.chat-bot-nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.bot === bot);
+  });
+}
+
+function switchBot(bot, _el) {
+  chatBot = bot;
+  chatHistory = [];
+  chatMobileHasBot = true;
+  const isMobile = window.innerWidth < 768;
+  if (isMobile) {
+    document.getElementById('chatBotSelect').style.display = 'none';
+    document.getElementById('chatView').classList.add('visible');
+  }
+  const b = CHAT_BOTS[bot];
+  document.getElementById('chatNavTitle').textContent = b.name;
+  document.getElementById('chatNavChip').style.visibility = 'visible';
+  document.getElementById('chatNavChip').textContent = b.chip;
+  setActiveSidebarBot(bot);
+  loadChatBot(bot);
+}
+
+function loadChatBot(bot) {
+  const b = CHAT_BOTS[bot];
+  const msgs = document.getElementById('chatMessages');
+  msgs.innerHTML = '';
+  // Remove any existing redirect banner
+  const existing = document.getElementById('chatRedirectBanner');
+  if (existing) existing.remove();
+  updateChatFootnote();
+  // AI speaks first
+  appendChatMsg('ai', b.opener);
+  chatHistory = [{ role: 'assistant', content: b.opener }];
+  // Focus input
+  setTimeout(() => document.getElementById('chatInput')?.focus(), 100);
+}
+
+function updateChatFootnote() {
+  const p = PROVIDERS[currentProvider];
+  const modelLabel = p?.models?.find(m => m.id === currentModel)?.label || currentModel;
+  const footnote = `Using ${p?.name || currentProvider} · ${modelLabel}`;
+  document.getElementById('chatFootnote').textContent = footnote;
+  document.getElementById('chatSidebarFooter').textContent = footnote;
+}
+
+function appendChatMsg(role, text) {
+  const msgs = document.getElementById('chatMessages');
+  const wrap = document.createElement('div');
+  wrap.className = `chat-msg ${role}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'chat-bubble';
+  // Convert newlines to <br> safely
+  bubble.innerHTML = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  wrap.appendChild(bubble);
+  msgs.appendChild(wrap);
+  msgs.scrollTop = msgs.scrollHeight;
+  return wrap;
+}
+
+function showTyping() {
+  const msgs = document.getElementById('chatMessages');
+  const el = document.createElement('div');
+  el.className = 'chat-typing'; el.id = 'chatTypingIndicator';
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement('div'); d.className = 'chat-typing-dot'; el.appendChild(d);
+  }
+  msgs.appendChild(el);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function removeTyping() {
+  const el = document.getElementById('chatTypingIndicator');
+  if (el) el.remove();
+}
+
+async function chatSend() {
+  const inp = document.getElementById('chatInput');
+  const text = (inp.value || '').trim();
+  if (!text || chatTyping) return;
+  inp.value = ''; inp.style.height = 'auto';
+  appendChatMsg('user', text);
+  chatHistory.push({ role: 'user', content: text });
+  chatTyping = true;
+  document.getElementById('chatSendBtn').disabled = true;
+  showTyping();
+  const b = CHAT_BOTS[chatBot];
+  try {
+    const messages = [
+      { role: 'system', content: b.system },
+      ...chatHistory
+    ];
+    const reply = await secureAPICall(messages, 600, false);
+    removeTyping();
+    // Check for scenario fill command (Advisor bot)
+    if (chatBot === 'advisor' && reply.includes('SCENARIO_FILL:')) {
+      const jsonStr = reply.match(/SCENARIO_FILL:(\{.*?\})/s)?.[1];
+      const displayText = reply.replace(/SCENARIO_FILL:\{.*?\}/s, '').trim();
+      if (displayText) appendChatMsg('ai', displayText);
+      chatHistory.push({ role: 'assistant', content: reply });
+      if (jsonStr) {
+        try {
+          const fill = JSON.parse(jsonStr);
+          setTimeout(() => triggerScenarioFill(fill), 600);
+        } catch(e) { /* parse failed, just show text */ }
+      }
+    } else {
+      appendChatMsg('ai', reply);
+      chatHistory.push({ role: 'assistant', content: reply });
+    }
+  } catch(err) {
+    removeTyping();
+    appendChatMsg('ai', `Sorry, something went wrong: ${err.message}`);
+  }
+  chatTyping = false;
+  document.getElementById('chatSendBtn').disabled = false;
+  inp.focus();
+}
+
+function triggerScenarioFill(fill) {
+  // Find the scenario card
+  const sc = LIBRARY.find(s => s.id === fill.id) || LIBRARY.find(s => s.id === 'custom');
+  if (!sc) return;
+  // Build a modified scenario with the filled values
+  const filled = {
+    ...sc,
+    anchors: fill.anchors || sc.anchors,
+    batna: fill.batna || sc.batna,
+    zopa: fill.zopa || sc.zopa,
+    ...(fill.id === 'custom' ? { name: fill.customName || 'Custom' } : {})
+  };
+  currentSC = filled;
+  // Highlight the card in the list if it exists
+  document.querySelectorAll('.scenario-card').forEach((card, i) => {
+    card.classList.toggle('selected', LIBRARY[i]?.id === filled.id);
+  });
+  // Show redirect banner inside chat
+  showChatRedirectBanner(filled.name);
+}
+
+function showChatRedirectBanner(scenarioName) {
+  // Remove existing banner
+  const existing = document.getElementById('chatRedirectBanner');
+  if (existing) existing.remove();
+  const chatView = document.getElementById('chatView');
+  const inputArea = document.querySelector('.chat-input-area');
+  const banner = document.createElement('div');
+  banner.className = 'chat-redirect-banner';
+  banner.id = 'chatRedirectBanner';
+  banner.innerHTML = `
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 8A5 5 0 113 8a5 5 0 0110 0zm-5-2v4m0 0l-1.5-1.5M8 10l1.5-1.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>
+    <span>Prep brief ready: <strong>${scenarioName}</strong></span>
+    <button class="chat-redirect-btn" onclick="launchFromChat()">Go to Prep →</button>
+  `;
+  chatView.insertBefore(banner, inputArea);
+}
+
+function launchFromChat() {
+  if (!currentSC) return;
+  generatedOpener = '';
+  buildPrep();
+  go('s-prep');
+}
+
+// Auto-resize textarea
+document.addEventListener('DOMContentLoaded', () => {});
+(function initChatInput() {
+  const ta = document.getElementById('chatInput');
+  if (!ta) return;
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  });
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); }
+  });
+})();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLEANUP
