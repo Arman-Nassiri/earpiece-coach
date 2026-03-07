@@ -889,24 +889,21 @@ Always end your first message with a concrete, specific question that invites th
 
 Through the conversation, gather:
 1. What kind of negotiation it is (salary, rent, car, freelance, business deal, medical bill, real estate, or other)
-2. Their high anchor (the first number they'll throw out)
+2. Their high anchor (the first number they'll throw out — their opening ask)
 3. Their mid target (what they'd be happy with)
-4. Their floor (the minimum they'd accept)
+4. Their floor (the minimum they'd accept / walk away point)
 5. Their BATNA (best alternative if this falls through)
 6. The likely range (what the other party probably has as budget/flexibility)
 
-Once you have enough information (you don't need to ask all questions explicitly — infer what you can), respond with a special JSON block inside your message using exactly this format on its own line:
-SCENARIO_FILL:{"id":"SCENARIO_ID","anchors":[{"l":"High","v":"VALUE"},{"l":"Mid","v":"VALUE"},{"l":"Floor","v":"VALUE"}],"batna":"BATNA TEXT","zopa":"ZOPA TEXT","customName":"CUSTOM NAME IF NEEDED"}
+Ask questions naturally, one or two at a time. Don't make it feel like a form. Lead with curiosity. Infer what you can from context.
 
-For SCENARIO_ID, choose the closest match from: salary, rent, car, freelance, joboffer, biz, severance, medical, realestate, equity, agency, raise, custom
-Only use "custom" if nothing fits.
-If custom, set customName to a short description.
+CRITICAL — When you have enough information to build the brief (usually after 2-3 exchanges), you MUST output your response in this EXACT format and nothing else — a single JSON object with a "message" field and a "fill" field:
 
-Before giving the JSON, tell the user you've built their brief and are sending them there now. Keep it warm and confident.
+{"message":"Your warm wrap-up message here telling them you've built their brief and are redirecting them now.","fill":{"id":"SCENARIO_ID","anchors":[{"l":"High","v":"VALUE"},{"l":"Mid","v":"VALUE"},{"l":"Floor","v":"VALUE"}],"batna":"BATNA TEXT","zopa":"ZOPA TEXT","customName":""}}
 
-Ask questions naturally, one or two at a time. Don't make it feel like a form. Lead with curiosity.
-
-Start by asking what they're negotiating — keep it open-ended.`,
+For SCENARIO_ID choose from: salary, rent, car, freelance, joboffer, biz, severance, medical, realestate, equity, agency, raise, custom
+Use "custom" only if nothing fits. If custom, set customName.
+For all other conversations (still gathering info), respond with plain text only — no JSON.`,
     opener: `I'm your Scenario Advisor. Tell me about your negotiation and I'll build your entire prep brief for you — anchors, BATNA, the works — automatically.\n\nWhat are you negotiating?`
   },
   intel: {
@@ -1039,6 +1036,42 @@ function removeTyping() {
   if (el) el.remove();
 }
 
+function tryParseAdvisorFill(reply) {
+  // Strategy 1: entire reply is a JSON object with "fill" key
+  try {
+    const clean = reply.trim().replace(/^```json|^```|```$/gm, '').trim();
+    const obj = JSON.parse(clean);
+    if (obj && obj.fill && obj.fill.id && obj.fill.anchors) return obj;
+    // Strategy 2: JSON object that IS the fill itself (has id + anchors)
+    if (obj && obj.id && obj.anchors) return { message: '', fill: obj };
+  } catch(_) {}
+  // Strategy 3: find any JSON blob in the reply that looks like a fill
+  const jsonMatches = reply.match(/\{[^{}]*"id"\s*:\s*"[^"]+?"[^{}]*"anchors"[^{}]*\[[\s\S]*?\][^{}]*\}/g);
+  if (jsonMatches) {
+    for (const m of jsonMatches) {
+      try {
+        const obj = JSON.parse(m);
+        if (obj.id && obj.anchors) {
+          const displayText = reply.replace(m, '').trim();
+          return { message: displayText, fill: obj };
+        }
+      } catch(_) {}
+    }
+  }
+  // Strategy 4: find any JSON blob with batna field (looser match)
+  const looseMatch = reply.match(/(\{[\s\S]*?"batna"[\s\S]*?\})/);
+  if (looseMatch) {
+    try {
+      const obj = JSON.parse(looseMatch[1]);
+      if (obj.id && obj.anchors) {
+        const displayText = reply.replace(looseMatch[1], '').trim();
+        return { message: displayText, fill: obj };
+      }
+    } catch(_) {}
+  }
+  return null;
+}
+
 async function chatSend() {
   const inp = document.getElementById('chatInput');
   const text = (inp.value || '').trim();
@@ -1055,19 +1088,18 @@ async function chatSend() {
       { role: 'system', content: b.system },
       ...chatHistory
     ];
-    const reply = await secureAPICall(messages, 600, false);
+    const reply = await secureAPICall(messages, 700, false);
     removeTyping();
-    // Check for scenario fill command (Advisor bot)
-    if (chatBot === 'advisor' && reply.includes('SCENARIO_FILL:')) {
-      const jsonStr = reply.match(/SCENARIO_FILL:(\{.*?\})/s)?.[1];
-      const displayText = reply.replace(/SCENARIO_FILL:\{.*?\}/s, '').trim();
-      if (displayText) appendChatMsg('ai', displayText);
-      chatHistory.push({ role: 'assistant', content: reply });
-      if (jsonStr) {
-        try {
-          const fill = JSON.parse(jsonStr);
-          setTimeout(() => triggerScenarioFill(fill), 600);
-        } catch(e) { /* parse failed, just show text */ }
+    // Advisor bot: try to detect a structured JSON response
+    if (chatBot === 'advisor') {
+      const fill = tryParseAdvisorFill(reply);
+      if (fill) {
+        if (fill.message) appendChatMsg('ai', fill.message);
+        chatHistory.push({ role: 'assistant', content: reply });
+        setTimeout(() => triggerScenarioFill(fill.fill || fill), 700);
+      } else {
+        appendChatMsg('ai', reply);
+        chatHistory.push({ role: 'assistant', content: reply });
       }
     } else {
       appendChatMsg('ai', reply);
