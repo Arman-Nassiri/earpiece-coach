@@ -1,8 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// GATE — SHA-256 hash of the access code. Never stored in plain text.
-// To change the password: run this in browser console:
-//   crypto.subtle.digest('SHA-256', new TextEncoder().encode('yourpassword'))
-//     .then(b => console.log([...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')))
+// GATE — SHA-256 hash only. Password never stored in plain text.
 // ─────────────────────────────────────────────────────────────────────────────
 const ACCESS_HASH = '89def7c4d970687427e7d350cb5cc6cbb9e8c3c70eaaefba30d8bd53c5083b6e';
 
@@ -19,14 +16,20 @@ async function submitGate() {
 
   const hash = await sha256(val);
   if (hash === ACCESS_HASH) {
-    gateUnlocked = true;
+    // Show loading overlay for 0.6s
+    const overlay = document.getElementById('gateLoadingOverlay');
+    overlay.classList.add('show');
     document.getElementById('gateInput').value = '';
-    go('s-home');
+    gateUnlocked = true;
+    setTimeout(() => {
+      overlay.classList.remove('show');
+      go('s-home');
+    }, 600);
   } else {
     status.textContent = 'Incorrect code.';
     status.className = 'gate-status fail';
+    btn.disabled = false; btn.textContent = 'Continue';
   }
-  btn.disabled = false; btn.textContent = 'Continue';
 }
 
 async function sha256(str) {
@@ -35,7 +38,7 @@ async function sha256(str) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECURITY: API key lives only in a closure, never on window
+// SECURITY: API key in closure only
 // ─────────────────────────────────────────────────────────────────────────────
 const SecureStore = (() => {
   let _mask = null, _masked = null;
@@ -168,23 +171,18 @@ function sanitize(str) {
 async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
   const rl = RateLimit.check();
   if (!rl.ok) throw new Error(rl.reason);
-
   const key = SecureStore.get();
   if (!key) throw new Error('No API key — reload and enter your key.');
-
   const p = PROVIDERS[currentProvider];
   if (!p) throw new Error('Unknown provider.');
-
   let systemContent = null, userMessages = messages;
   if (messages.length && messages[0].role === 'system') {
     systemContent = messages[0].content;
     userMessages = messages.slice(1);
   }
-
   const endpoint = typeof p.endpoint === 'function' ? p.endpoint(key) : p.endpoint;
   const body = p.buildBody(maxTokens, jsonMode, systemContent, userMessages);
   const authHeaders = p.authHeader(key);
-
   RateLimit.record();
   let res;
   try {
@@ -194,7 +192,6 @@ async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
       body: JSON.stringify(body)
     });
   } catch(e) { throw new Error('Network error — check your connection.'); }
-
   if (!res.ok) {
     let errMsg = `API error ${res.status}`;
     try { const d = await res.json(); errMsg = d?.error?.message || d?.error?.status || errMsg; } catch(_) {}
@@ -202,7 +199,6 @@ async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
     if (res.status === 429) throw new Error('Rate limited — wait a moment.');
     throw new Error(errMsg);
   }
-
   const data = await res.json();
   const content = p.extractContent(data);
   if (!content) throw new Error('Empty response from API.');
@@ -226,9 +222,7 @@ async function verifyKey(key, provider) {
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify(body)
     });
-  } catch(netErr) {
-    throw new Error('Could not reach ' + p.name + '. Check your connection.');
-  }
+  } catch(e) { throw new Error('Could not reach ' + p.name + '. Check your connection.'); }
   if (!res.ok) {
     let errMsg = 'Error ' + res.status;
     try { const d = await res.json(); errMsg = d?.error?.message || d?.error?.status || errMsg; } catch(_) {}
@@ -239,35 +233,87 @@ async function verifyKey(key, provider) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SCENARIO LIBRARY
+// SCENARIO LIBRARY — 13 scenarios, no icons
 // ─────────────────────────────────────────────────────────────────────────────
 const LIBRARY = [
-  { id:'salary',    icon:'$', name:'Salary',           sub:'Job offer, raise, or promotion',
+  { id:'salary',
+    name:'Salary',
+    sub:'Job offer, raise, or promotion',
     anchors:[{l:'High',v:'$148,000'},{l:'Mid',v:'$142,000'},{l:'Floor',v:'$135,000'}],
-    batna:'Competing offer at $128,000 from another company', zopa:'Their likely range: $130,000 – $150,000' },
-  { id:'rent',      icon:'#', name:'Rent',              sub:'Apartment or lease negotiation',
+    batna:'Competing offer at $128,000 from another company',
+    zopa:'Their likely range: $130,000 – $150,000' },
+  { id:'rent',
+    name:'Rent',
+    sub:'Apartment or lease negotiation',
     anchors:[{l:'High',v:'$2,100/mo'},{l:'Mid',v:'$2,200/mo'},{l:'Floor',v:'$2,350/mo'}],
-    batna:'Comparable unit nearby listed at $2,150/mo', zopa:'Landlord likely flexible between $2,200 – $2,400' },
-  { id:'car',       icon:'~', name:'Car Dealer',        sub:'New or used vehicle price',
+    batna:'Comparable unit nearby listed at $2,150/mo',
+    zopa:'Landlord likely flexible between $2,200 – $2,400' },
+  { id:'car',
+    name:'Car Dealer',
+    sub:'New or used vehicle price',
     anchors:[{l:'High',v:'$31,500 OTD'},{l:'Mid',v:'$33,000 OTD'},{l:'Floor',v:'$34,500 OTD'}],
-    batna:'Same trim at competing dealer: $33,200 out the door', zopa:'Dealer invoice ~$30,800 — meaningful room exists' },
-  { id:'freelance', icon:'/', name:'Freelance Rate',    sub:'Hourly or project rate with a client',
+    batna:'Same trim at competing dealer: $33,200 out the door',
+    zopa:'Dealer invoice ~$30,800 — meaningful room exists' },
+  { id:'freelance',
+    name:'Freelance Rate',
+    sub:'Hourly or project rate with a client',
     anchors:[{l:'High',v:'$150/hr'},{l:'Mid',v:'$130/hr'},{l:'Floor',v:'$110/hr'}],
-    batna:'Another client offering $105/hr for similar work', zopa:'Client likely has budget for $120–$145/hr' },
-  { id:'joboffer',  icon:'+', name:'Job Offer Counter', sub:'Push back on an existing offer',
+    batna:'Another client offering $105/hr for similar work',
+    zopa:'Client likely has budget for $120–$145/hr' },
+  { id:'joboffer',
+    name:'Job Offer Counter',
+    sub:'Push back on an existing offer',
     anchors:[{l:'High',v:'$155,000'},{l:'Mid',v:'$148,000'},{l:'Floor',v:'$140,000'}],
-    batna:'Current offer on the table: $132,000', zopa:'Recruiter hinted budget can stretch to $145–$150K' },
-  { id:'biz',       icon:'&', name:'Business Deal',     sub:'Partnership, contract, or vendor',
+    batna:'Current offer on the table: $132,000',
+    zopa:'Recruiter hinted budget can stretch to $145–$150K' },
+  { id:'biz',
+    name:'Business Deal',
+    sub:'Partnership, contract, or vendor',
     anchors:[{l:'High',v:'$50,000'},{l:'Mid',v:'$42,000'},{l:'Floor',v:'$35,000'}],
-    batna:'Alternative vendor quoted $34,000 for same scope', zopa:"Other party's budget appears to be $38,000–$48,000" },
-  { id:'severance', icon:'x', name:'Severance',         sub:'Negotiate exit terms with employer',
+    batna:'Alternative vendor quoted $34,000 for same scope',
+    zopa:"Other party's budget appears to be $38,000–$48,000" },
+  { id:'severance',
+    name:'Severance',
+    sub:'Negotiate exit terms with employer',
     anchors:[{l:'High',v:'6 months pay'},{l:'Mid',v:'4 months pay'},{l:'Floor',v:'2 months pay'}],
-    batna:'Standard policy offers 2 weeks per year of service', zopa:'Company has offered 6–8 weeks in similar departures' },
-  { id:'medical',   icon:'+', name:'Medical Bill',      sub:'Negotiate a hospital or provider bill',
+    batna:'Standard policy offers 2 weeks per year of service',
+    zopa:'Company has offered 6–8 weeks in similar departures' },
+  { id:'medical',
+    name:'Medical Bill',
+    sub:'Negotiate a hospital or provider bill',
     anchors:[{l:'High',v:'50% reduction'},{l:'Mid',v:'35% reduction'},{l:'Floor',v:'20% reduction'}],
-    batna:"Can set up a 12-month payment plan if they won't reduce", zopa:'Hospitals routinely settle for 40–60% of billed amount' },
-  { id:'custom',    icon:'*', name:'Custom',            sub:'Any negotiation, your terms',
-    anchors:[{l:'High',v:''},{l:'Mid',v:''},{l:'Floor',v:''}], batna:'', zopa:'' }
+    batna:"Can set up a 12-month payment plan if they won't reduce",
+    zopa:'Hospitals routinely settle for 40–60% of billed amount' },
+  { id:'realestate',
+    name:'Real Estate',
+    sub:'Home purchase or sale price',
+    anchors:[{l:'High',v:'$620,000'},{l:'Mid',v:'$635,000'},{l:'Floor',v:'$650,000'}],
+    batna:'Another property in the same area listed at $645,000',
+    zopa:'Seller listed at $659,000 — likely flexible to $630–$645K' },
+  { id:'equity',
+    name:'Equity & Comp',
+    sub:'Stock options, RSUs, or signing bonus',
+    anchors:[{l:'High',v:'$80,000 signing + 1.2% equity'},{l:'Mid',v:'$60,000 signing + 0.9%'},{l:'Floor',v:'$40,000 signing + 0.6%'}],
+    batna:'Competing offer includes $50K signing and 0.7% equity',
+    zopa:'Startup has flexibility on equity but less cash — push equity first' },
+  { id:'agency',
+    name:'Agency / Retainer',
+    sub:'Monthly retainer or agency contract',
+    anchors:[{l:'High',v:'$12,000/mo'},{l:'Mid',v:'$9,500/mo'},{l:'Floor',v:'$7,500/mo'}],
+    batna:'Can bring work in-house for roughly $6,000/mo in overhead',
+    zopa:"Agency's typical range for similar scope: $8,000–$11,000/mo" },
+  { id:'raise',
+    name:'Performance Raise',
+    sub:'Annual review or mid-cycle raise ask',
+    anchors:[{l:'High',v:'22% increase'},{l:'Mid',v:'16% increase'},{l:'Floor',v:'11% increase'}],
+    batna:'Market data shows peers earning 18–24% more for same role',
+    zopa:'Budget cycles typically allow 8–15% — come in high to create room' },
+  { id:'custom',
+    name:'Custom',
+    sub:'Any negotiation, your terms',
+    anchors:[{l:'High',v:''},{l:'Mid',v:''},{l:'Floor',v:''}],
+    batna:'',
+    zopa:'' }
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -291,7 +337,6 @@ let generatedOpener = '', micActive = false;
     const div = document.createElement('div');
     div.className = 'scenario-card';
     div.innerHTML = `
-      <div class="sc-icon">${sc.icon}</div>
       <div class="sc-text">
         <div class="sc-name">${sc.name}</div>
         <div class="sc-sub">${sc.sub}</div>
@@ -308,8 +353,11 @@ let generatedOpener = '', micActive = false;
 function applyTheme(dark, save = true) {
   darkMode = dark;
   document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
-  const btn = document.getElementById('themeBtn');
-  if (btn) btn.innerHTML = dark ? '&#9790;' : '&#9788;';
+  const sym = dark ? '&#9790;' : '&#9788;';
+  ['themeBtn','themeBtnLaunch'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = sym;
+  });
   if (save) localStorage.setItem('gc-theme', dark ? 'dark' : 'light');
 }
 function toggleTheme() { applyTheme(!darkMode); }
@@ -320,8 +368,9 @@ function toggleTheme() { applyTheme(!darkMode); }
 function inlineConfirm(btn, onConfirm, opts = {}) {
   if (!btn || btn.dataset.confirming) return;
   btn.dataset.confirming = '1';
-  const origHTML = btn.innerHTML, origClass = btn.className;
-  const origStyle = btn.getAttribute('style') || '', origOnClick = btn.getAttribute('onclick');
+  const origHTML = btn.innerHTML;
+  const origClass = btn.className;
+  const origStyle = btn.getAttribute('style') || '';
 
   const yes = document.createElement('button');
   yes.className = 'ic-yes' + (opts.yesClass === 'danger' ? ' danger' : '');
@@ -337,9 +386,10 @@ function inlineConfirm(btn, onConfirm, opts = {}) {
   btn.appendChild(yes); btn.appendChild(no);
 
   function restore() {
-    btn.innerHTML = origHTML; btn.className = origClass;
-    btn.classList.remove('ic-host'); btn.setAttribute('style', origStyle);
-    if (origOnClick) btn.setAttribute('onclick', origOnClick); else btn.removeAttribute('onclick');
+    btn.innerHTML = origHTML;
+    btn.className = origClass;
+    btn.classList.remove('ic-host');
+    btn.setAttribute('style', origStyle);
     delete btn.dataset.confirming;
   }
 
@@ -383,6 +433,20 @@ function go(id) {
     setTimeout(() => cur.classList.remove('leaving'), 280);
   }
   setTimeout(() => document.getElementById(id).classList.add('active'), 55);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CHANGE KEY — from home screen
+// ─────────────────────────────────────────────────────────────────────────────
+function changeKey() {
+  SecureStore.clear();
+  // reset key screen state
+  document.getElementById('apiKeyInput').value = '';
+  document.getElementById('keyVerifyStatus').textContent = '';
+  document.getElementById('keyVerifyStatus').className = 'key-verify-status';
+  document.getElementById('continueBtn').disabled = false;
+  document.getElementById('continueBtn').textContent = 'Verify & Continue';
+  go('s-key');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -446,7 +510,6 @@ async function submitKey() {
     } else {
       document.getElementById('apiKeyInput').value = '';
     }
-    // Go to gate if not yet unlocked, otherwise go home
     setTimeout(() => go(gateUnlocked ? 's-home' : 's-gate'), 600);
   } catch(err) {
     status.textContent = err.message; status.className = 'key-verify-status fail';
@@ -478,7 +541,6 @@ function goPrep() {
 function buildPrep() {
   const sc = currentSC;
   document.getElementById('prepTitle').textContent = sc.name;
-  // Also update sidebar title for desktop
   const sidebarTitle = document.getElementById('prepTitleSidebar');
   if (sidebarTitle) sidebarTitle.textContent = sc.name;
   const wrap = document.getElementById('prepScroll');
@@ -550,13 +612,10 @@ async function generateOpener() {
   const regenBtn = document.getElementById('openerRegenBtn');
   const box      = document.getElementById('openerBox');
   if (!genBtn || !box) return;
-
   genBtn.disabled = true;
   box.innerHTML = `<div class="opener-loading"><div class="opener-spinner"></div><div class="opener-loading-text">Generating your line…</div></div>`;
-
   const { anc, batna, customName } = getLiveValues();
   const sceneName = currentSC.id === 'custom' ? customName || 'Custom' : currentSC.name;
-
   try {
     const content = await secureAPICall([
       {
@@ -573,7 +632,6 @@ RULES — follow exactly:
 
 GOOD: "I'm at $148,000." / "My number is $148,000." / "The rate is $150 an hour." / "We're starting at $50,000."
 BAD: "Based on my experience, I was thinking somewhere in the range of $140,000 to $150,000."
-BAD: "Thank you for the offer. I'd like to counter at around $148,000."
 
 Return only the line.`
       },
@@ -582,7 +640,6 @@ Return only the line.`
         content: `Scenario: ${sceneName}\nHigh anchor: ${anc[0]}\nBATNA (context only): ${batna}`
       }
     ], 60, false);
-
     generatedOpener = content.trim().replace(/^["']|["']$/g, '');
     box.innerHTML = `<div class="opener-text">${generatedOpener}</div><div class="opener-hint">Say this first. Then stop talking.</div>`;
     genBtn.style.display = 'none';
@@ -619,11 +676,20 @@ function resetLive() {
   setS('idle', 'Waiting for microphone...');
 }
 
-async function confirmEnd() {
-  const btn = document.getElementById('endBtn') || document.querySelector('.end-btn');
+// ─────────────────────────────────────────────────────────────────────────────
+// END SESSION — works for both mobile and desktop buttons
+// ─────────────────────────────────────────────────────────────────────────────
+function confirmEnd(btn) {
+  // Fallback: if called without a button reference, find first end-btn
+  const target = btn || document.getElementById('endBtn') || document.querySelector('.end-btn');
   inlineConfirm(
-    btn,
-    () => { stopMic(); earOn = true; go('s-home'); },
+    target,
+    () => {
+      stopMic();
+      earOn = true;
+      // Small delay so inline confirm restores before screen transition
+      setTimeout(() => go('s-home'), 50);
+    },
     { yesLabel: 'End', yesClass: 'danger' }
   );
 }

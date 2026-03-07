@@ -25,6 +25,14 @@
   </div>
 </div>
 
+<!-- GATE LOADING OVERLAY -->
+<div class="gate-loading-overlay" id="gateLoadingOverlay">
+  <div class="gate-loading-inner">
+    <div class="gate-loading-spinner"></div>
+    <div class="gate-loading-text">Verifying access...</div>
+  </div>
+</div>
+
 <!-- S-LAUNCH -->
 <div class="screen active" id="s-launch">
   <div class="launch-inner">
@@ -34,6 +42,9 @@
     </div>
     <div class="launch-actions">
       <button class="btn" onclick="go('s-key')">Get started</button>
+    </div>
+    <div class="launch-theme-row">
+      <button class="icon-btn" id="themeBtnLaunch" onclick="toggleTheme()">&#9788;</button>
     </div>
   </div>
 </div>
@@ -101,18 +112,17 @@
 
 <!-- S1: HOME -->
 <div class="screen" id="s-home">
-  <!-- Mobile: top bar / Desktop: sidebar -->
   <div class="home-sidebar">
-    <div>
+    <div class="home-sidebar-top">
       <div class="home-wordmark">Gibsel Cue</div>
       <div class="home-sub">What are you walking into?</div>
     </div>
-    <div class="home-nav-right">
+    <div class="home-sidebar-actions">
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
+      <button class="icon-btn" onclick="changeKey()" title="Change API key">&#8644;</button>
     </div>
   </div>
 
-  <!-- Mobile: inline / Desktop: main col -->
   <div class="home-main">
     <div class="section-label">Scenario</div>
     <div class="card-list" id="cardList"></div>
@@ -126,7 +136,7 @@
 <div class="screen" id="s-prep">
   <!-- Desktop sidebar -->
   <div class="prep-sidebar">
-    <button class="nav-back" onclick="go('s-home')" style="margin-bottom:24px;">&#8592;</button>
+    <button class="nav-back" onclick="go('s-home')" style="margin-bottom:24px;align-self:flex-start;">&#8592;</button>
     <div class="nav-title" id="prepTitleSidebar">—</div>
     <div class="nav-chip" style="margin-top:8px;align-self:flex-start;">Prep</div>
   </div>
@@ -138,7 +148,6 @@
     <div class="nav-chip">Prep</div>
   </div>
 
-  <!-- Main content -->
   <div class="prep-main">
     <div class="edit-hint">
       <div class="edit-hint-text"><strong>Every field is editable.</strong> Tap any number to change it.</div>
@@ -156,14 +165,14 @@
   <div class="live-sidebar">
     <div class="live-pill"><div class="live-dot"></div><div class="live-pill-text">Live</div></div>
     <div class="live-scene-name" id="liveSceneSidebar">—</div>
-    <button class="end-btn" onclick="confirmEnd()">End session</button>
+    <button class="end-btn" id="endBtnSidebar" onclick="confirmEnd(this)">End session</button>
   </div>
 
   <!-- Mobile nav bar -->
   <div class="live-nav">
     <div class="live-pill"><div class="live-dot"></div><div class="live-pill-text">Live</div></div>
     <div class="live-scene-name" id="liveScene">—</div>
-    <button class="end-btn" id="endBtn" onclick="confirmEnd()">End</button>
+    <button class="end-btn" id="endBtn" onclick="confirmEnd(this)">End</button>
   </div>
 
   <div class="live-body">
