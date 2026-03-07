@@ -44,6 +44,7 @@
       <button class="btn" onclick="go('s-key')">Get started</button>
       <button class="icon-btn" id="themeBtnLaunch" onclick="toggleTheme()">&#9788;</button>
     </div>
+    <div class="launch-theme-row" style="display:none;"></div>
   </div>
 </div>
 
@@ -67,6 +68,17 @@
       </div>
 
       <div id="keyFields" style="margin-top:4px;">
+        <div id="modelSelectRow" style="margin-top:18px;">
+          <div class="field-label">Model</div>
+          <div class="model-select-wrap">
+            <select class="model-select" id="modelSelect">
+              <option value="gpt-4.1-mini">GPT-4.1 Mini — fastest &amp; cheapest</option>
+              <option value="gpt-4.1">GPT-4.1 — recommended</option>
+              <option value="gpt-4o">GPT-4o — balanced</option>
+            </select>
+            <div class="model-select-arrow">&#8964;</div>
+          </div>
+        </div>
         <div id="keyFieldSingle">
           <div class="field-label" style="margin-top:18px;" id="keyLabel">API Key</div>
           <input class="field-input" id="apiKeyInput" type="password" placeholder="Paste your key…" autocomplete="off" spellcheck="false"/>
@@ -80,7 +92,6 @@
       </div>
 
       <div class="security-badge" style="margin-top:14px;">
-        <div class="security-badge-icon">TLS</div>
         <div class="security-badge-text">
           <strong>Memory-only.</strong> Your key is never stored or logged — sent directly to your provider over HTTPS.
         </div>
@@ -163,6 +174,12 @@
   <div class="live-sidebar">
     <div class="live-pill"><div class="live-dot"></div><div class="live-pill-text">Live</div></div>
     <div class="live-scene-name" id="liveSceneSidebar">—</div>
+    <div class="ear-toggle-sidebar">
+      <button class="ear-toggle-btn" id="earBtnSidebar" onclick="toggleEar()">
+        <span class="ear-toggle-icon">&#127911;</span>
+        <span class="ear-toggle-label" id="earBtnSidebarLabel">Earpiece on</span>
+      </button>
+    </div>
     <button class="end-btn" id="endBtnSidebar" onclick="confirmEnd(this)">End session</button>
   </div>
 
@@ -170,6 +187,7 @@
   <div class="live-nav">
     <div class="live-pill"><div class="live-dot"></div><div class="live-pill-text">Live</div></div>
     <div class="live-scene-name" id="liveScene">—</div>
+    <button class="ear-toggle-nav" id="earBtnNav" onclick="toggleEar()" title="Toggle earpiece">&#127911;</button>
     <button class="end-btn" id="endBtn" onclick="confirmEnd(this)">End</button>
   </div>
 

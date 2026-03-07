@@ -16,15 +16,9 @@ async function submitGate() {
 
   const hash = await sha256(val);
   if (hash === ACCESS_HASH) {
-    // Show loading overlay for 0.6s
-    const overlay = document.getElementById('gateLoadingOverlay');
-    overlay.classList.add('show');
     document.getElementById('gateInput').value = '';
     gateUnlocked = true;
-    setTimeout(() => {
-      overlay.classList.remove('show');
-      go('s-home');
-    }, 600);
+    go('s-home');
   } else {
     status.textContent = 'Incorrect code.';
     status.className = 'gate-status fail';
@@ -86,10 +80,15 @@ const PROVIDERS = {
   openai: {
     name: 'OpenAI', placeholder: 'sk-proj-... or sk-...',
     note: 'Key sent directly to api.openai.com — never stored or logged.',
+    models: [
+      { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', badge: 'fastest · cheapest' },
+      { id: 'gpt-4.1',      label: 'GPT-4.1',      badge: 'recommended' },
+      { id: 'gpt-4o',       label: 'GPT-4o',        badge: 'balanced' },
+    ],
     endpoint: () => 'https://api.openai.com/v1/chat/completions',
     authHeader: key => ({ 'Authorization': 'Bearer ' + key }),
     buildBody: (maxTokens, jsonMode, systemContent, userMessages) => ({
-      model: 'gpt-4.1-mini', max_tokens: maxTokens, temperature: 0.7,
+      model: currentModel, max_tokens: maxTokens, temperature: 0.7,
       messages: [...(systemContent ? [{role:'system',content:systemContent}] : []), ...userMessages],
       ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
     }),
@@ -99,6 +98,11 @@ const PROVIDERS = {
   anthropic: {
     name: 'Anthropic', placeholder: 'sk-ant-api03-...',
     note: 'Key sent directly to api.anthropic.com — never stored or logged.',
+    models: [
+      { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', badge: 'fastest · cheapest' },
+      { id: 'claude-sonnet-4-5',         label: 'Claude Sonnet 4.5', badge: 'recommended' },
+      { id: 'claude-opus-4-5',           label: 'Claude Opus 4.5',   badge: 'most capable' },
+    ],
     endpoint: () => 'https://api.anthropic.com/v1/messages',
     authHeader: key => ({
       'x-api-key': key,
@@ -106,7 +110,7 @@ const PROVIDERS = {
       'anthropic-dangerous-direct-browser-access': 'true'
     }),
     buildBody: (maxTokens, jsonMode, systemContent, userMessages) => ({
-      model: 'claude-haiku-4-5-20251001', max_tokens: maxTokens,
+      model: currentModel, max_tokens: maxTokens,
       ...(systemContent ? { system: systemContent } : {}),
       messages: userMessages
     }),
@@ -116,7 +120,12 @@ const PROVIDERS = {
   google: {
     name: 'Google', placeholder: 'AIzaSy...',
     note: 'Key sent directly to generativelanguage.googleapis.com.',
-    endpoint: key => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`,
+    models: [
+      { id: 'gemini-2.0-flash',       label: 'Gemini 2.0 Flash',   badge: 'fastest · cheapest' },
+      { id: 'gemini-2.5-flash',       label: 'Gemini 2.5 Flash',   badge: 'recommended' },
+      { id: 'gemini-2.5-pro',         label: 'Gemini 2.5 Pro',     badge: 'most capable' },
+    ],
+    endpoint: key => `https://generativelanguage.googleapis.com/v1beta/models/${currentModel}:generateContent?key=${key}`,
     authHeader: () => ({}),
     buildBody: (maxTokens, jsonMode, systemContent, userMessages) => ({
       ...(systemContent ? { system_instruction: { parts: [{ text: systemContent }] } } : {}),
@@ -129,6 +138,11 @@ const PROVIDERS = {
   azure: {
     name: 'Azure OpenAI', placeholder: '',
     note: 'Endpoint and key sent directly to your Azure resource.',
+    models: [
+      { id: 'gpt-4o-mini', label: 'GPT-4o Mini', badge: 'fastest · cheapest' },
+      { id: 'gpt-4o',      label: 'GPT-4o',      badge: 'recommended' },
+      { id: 'gpt-4.1',     label: 'GPT-4.1',     badge: 'most capable' },
+    ],
     endpoint: key => key.split('|||')[0],
     authHeader: key => ({ 'api-key': key.split('|||')[1] }),
     buildBody: (maxTokens, jsonMode, systemContent, userMessages) => ({
@@ -142,10 +156,15 @@ const PROVIDERS = {
   meta: {
     name: 'Meta', placeholder: 'Your Llama API key',
     note: 'Key sent directly to api.llama.com — never stored or logged.',
+    models: [
+      { id: 'Llama-4-Scout-17B-16E-Instruct', label: 'Llama 4 Scout',  badge: 'fastest · cheapest' },
+      { id: 'Llama-4-Maverick-17B-128E-Instruct', label: 'Llama 4 Maverick', badge: 'recommended' },
+      { id: 'Meta-Llama-3.3-70B-Instruct',    label: 'Llama 3.3 70B', badge: 'balanced' },
+    ],
     endpoint: () => 'https://api.llama.com/v1/chat/completions',
     authHeader: key => ({ 'Authorization': 'Bearer ' + key }),
     buildBody: (maxTokens, jsonMode, systemContent, userMessages) => ({
-      model: 'Llama-4-Scout-17B-16E-Instruct', max_tokens: maxTokens,
+      model: currentModel, max_tokens: maxTokens,
       messages: [...(systemContent ? [{role:'system',content:systemContent}] : []), ...userMessages]
     }),
     extractContent: data =>
@@ -156,6 +175,7 @@ const PROVIDERS = {
 };
 
 let currentProvider = 'openai';
+let currentModel = 'gpt-4.1-mini';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SANITIZE
@@ -449,10 +469,23 @@ function changeKey() {
   go('s-key');
 }
 
+function updateModelSelect(provider) {
+  const p = PROVIDERS[provider];
+  const sel = document.getElementById('modelSelect');
+  if (!sel || !p.models) return;
+  sel.innerHTML = p.models.map(m =>
+    `<option value="${m.id}">${m.label} — ${m.badge}</option>`
+  ).join('');
+  currentModel = p.models[0].id;
+  sel.value = currentModel;
+  sel.onchange = () => { currentModel = sel.value; };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PROVIDER TABS
 // ─────────────────────────────────────────────────────────────────────────────
 (function initProviderTabs() {
+  updateModelSelect('openai');
   document.querySelectorAll('.ptab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.ptab').forEach(t => t.classList.remove('active'));
@@ -472,6 +505,7 @@ function changeKey() {
       document.getElementById('keyNote').textContent = p.note;
       document.getElementById('keyVerifyStatus').textContent = '';
       document.getElementById('keyVerifyStatus').className = 'key-verify-status';
+      updateModelSelect(currentProvider);
     });
   });
 })();
@@ -659,8 +693,7 @@ function goLive() {
   const sidebarScene = document.getElementById('liveSceneSidebar');
   if (sidebarScene) sidebarScene.textContent = sceneName;
   earOn = true;
-  const earBtn = document.getElementById('earBtn');
-  if (earBtn) { earBtn.textContent = 'EAR ON'; earBtn.classList.add('on'); }
+  syncEarUI();
   go('s-live');
   setTimeout(startMic, 420);
 }
@@ -832,11 +865,24 @@ function speak(text) {
   window.speechSynthesis.speak(u);
 }
 
+function syncEarUI() {
+  const on = earOn;
+  // In-card button
+  const b = document.getElementById('earBtn');
+  if (b) { b.textContent = on ? 'EAR ON' : 'EAR OFF'; b.classList.toggle('on', on); }
+  // Nav bar (mobile)
+  const bn = document.getElementById('earBtnNav');
+  if (bn) { bn.title = on ? 'Earpiece on — tap to mute' : 'Earpiece off — tap to enable'; bn.classList.toggle('on', on); }
+  // Sidebar (desktop)
+  const bs = document.getElementById('earBtnSidebar');
+  const bl = document.getElementById('earBtnSidebarLabel');
+  if (bs) bs.classList.toggle('on', on);
+  if (bl) bl.textContent = on ? 'Earpiece on' : 'Earpiece off';
+}
+
 function toggleEar() {
   earOn = !earOn;
-  const b = document.getElementById('earBtn');
-  b.textContent = earOn ? 'EAR ON' : 'EAR OFF';
-  b.classList.toggle('on', earOn);
+  syncEarUI();
   toast(earOn ? 'Earpiece on' : 'Earpiece off');
 }
 

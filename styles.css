@@ -174,20 +174,15 @@ html, body {
 }
 
 /* ─────────────────────────────────────────────────────
-   DESKTOP: entry screens (launch, key, gate) — centered card
+   DESKTOP: entry screens — full bleed, no phone card
 ───────────────────────────────────────────────────── */
 @media (min-width: 768px) {
   #s-launch, #s-key, #s-gate {
-    background: var(--bg2);
     align-items: center;
     justify-content: center;
   }
   .launch-inner, .key-inner, .gate-inner {
-    background: var(--surface);
-    border: 1.5px solid var(--border);
-    border-radius: 24px;
-    box-shadow: 0 8px 48px rgba(0,0,0,0.07);
-    max-width: 440px; width: 100%;
+    max-width: 480px; width: 100%;
     flex: unset;
     padding: 48px 40px !important;
   }
@@ -224,9 +219,7 @@ html, body {
   color: var(--text); margin-bottom: 8px;
 }
 .wordmark-sub { font-size: 15px; color: var(--text3); margin-bottom: 48px; line-height: 1.5; }
-.launch-actions {
-  display: flex; flex-direction: row; align-items: center; gap: 10px;
-}
+.launch-actions { display: flex; flex-direction: row; align-items: center; gap: 10px; }
 .launch-actions .btn { flex: 1; }
 .launch-theme-row { display: none; }
 
@@ -258,16 +251,16 @@ html, body {
   padding: 12px 14px; background: var(--bg2);
   border: 1.5px solid var(--border); border-radius: var(--rs);
 }
-.security-badge-icon { font-size: 10px; flex-shrink: 0; padding-top: 2px; color: var(--text3); font-weight: 800; letter-spacing: 0.5px; }
 .security-badge-text { font-size: 12px; color: var(--text3); line-height: 1.55; }
 .security-badge-text strong { color: var(--text2); font-weight: 600; }
 .provider-tabs { display: flex; gap: 5px; margin-bottom: 0; flex-wrap: wrap; }
 .ptab {
-  flex: 1; min-width: 56px; padding: 10px 4px; border-radius: var(--rs);
+  flex: 1; min-width: 0; padding: 10px 6px; border-radius: var(--rs);
   font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 600;
   cursor: pointer; border: 1.5px solid var(--border);
   background: var(--surface); color: var(--text3);
   transition: all 0.15s var(--ease); min-height: 44px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ptab.active { background: var(--text); color: var(--bg); border-color: var(--text); }
 .ptab:hover:not(.active) { background: var(--bg2); }
@@ -693,5 +686,52 @@ html, body {
   pointer-events: none; white-space: nowrap; z-index: 300;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── MODEL SELECT ── */
+.model-select-wrap {
+  position: relative; display: flex; align-items: center;
+}
+.model-select {
+  width: 100%; background: var(--surface);
+  border: 1.5px solid var(--border); border-radius: var(--rs);
+  padding: 14px 40px 14px 16px;
+  font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500;
+  color: var(--text); outline: none; cursor: pointer;
+  -webkit-appearance: none; appearance: none;
+  transition: border-color 0.18s, background 0.25s;
+}
+.model-select:focus { border-color: var(--text); }
+.model-select-arrow {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+  font-size: 16px; color: var(--text3); pointer-events: none; line-height: 1;
+}
+
+/* ── EAR TOGGLE — nav bar (mobile) ── */
+.ear-toggle-nav {
+  min-width: 36px; min-height: 36px; border-radius: 10px;
+  background: var(--bg2); border: 1.5px solid var(--border);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 15px; flex-shrink: 0;
+  color: var(--text3); transition: all 0.15s; padding: 0;
+}
+.ear-toggle-nav.on { background: var(--text); border-color: var(--text); color: var(--bg); filter: grayscale(0); }
+.ear-toggle-nav:not(.on) { filter: grayscale(1) opacity(0.5); }
+.ear-toggle-nav:active { transform: scale(0.9); }
+
+/* ── EAR TOGGLE — sidebar (desktop) ── */
+.ear-toggle-sidebar { margin-top: 0; }
+.ear-toggle-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 13px 16px; border-radius: var(--rs);
+  background: var(--bg2); border: 1.5px solid var(--border);
+  cursor: pointer; font-family: 'DM Sans', sans-serif;
+  font-size: 13px; font-weight: 600; color: var(--text2);
+  transition: all 0.15s; text-align: left;
+}
+.ear-toggle-btn.on { background: var(--text); border-color: var(--text); color: var(--bg); }
+.ear-toggle-btn.on .ear-toggle-label { color: var(--bg); }
+.ear-toggle-btn:active { transform: scale(0.98); opacity: 0.88; }
+.ear-toggle-icon { font-size: 16px; flex-shrink: 0; }
+.ear-toggle-label { font-size: 13px; font-weight: 600; }
 
 ::-webkit-scrollbar { width: 0; height: 0; }
