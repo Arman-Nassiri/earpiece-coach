@@ -39,7 +39,7 @@
         <div class="launch-divider-text">or</div>
         <div class="launch-divider-line"></div>
       </div>
-      <button class="btn-ghost" onclick="go('s-key')">Continue with your own API key</button>
+      <button class="btn-ghost" onclick="enterBYOKMode()">Continue with your own API key</button>
     </div>
     <div class="launch-footnote">Already have an account? <span style="color:var(--text);font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px" onclick="showLogin()">Log in</span></div>
   </div>
@@ -227,7 +227,7 @@
         <div class="plan-feature"><span class="plan-feature-check">✓</span><span>All AI providers supported</span></div>
         <div class="plan-feature"><span class="plan-feature-x">—</span><span style="color:var(--text3)">No account required</span></div>
       </div>
-      <button class="plan-cta-btn secondary" onclick="go('s-key')">Use with your own key</button>
+      <button class="plan-cta-btn secondary" onclick="enterBYOKMode()">Use with your own key</button>
     </div>
 
     <!-- PRO -->
@@ -288,7 +288,7 @@
       <button class="plan-cta-btn disabled" disabled>Notify me when available</button>
     </div>
 
-    <div class="pricing-note">Cancel anytime. No contracts. Billed monthly.<br>Questions? hi@gibsel.com</div>
+    <div class="pricing-note">Cancel anytime. No contracts. Billed monthly.<br>Questions? <a href="/cdn-cgi/l/email-protection" class="__cf_email__" data-cfemail="ddb5b49dbab4bfaeb8b1f3beb2b0">[email&#160;protected]</a></div>
   </div>
 </div>
 
@@ -338,10 +338,4 @@
 <div class="toast" id="toast"></div>
 
 <!-- Third-party SDKs -->
-<script src="https://js.stripe.com/v3/"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-<!-- App -->
-<script src="app.js"></script>
-</body>
-</html>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-s

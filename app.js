@@ -40,6 +40,16 @@ async function loadProfile(userId) {
   handleCheckoutReturn();
 })();
 
+// Call this whenever a user chooses BYOK — nukes any lingering Supabase session
+async function enterBYOKMode() {
+  if (currentUser) {
+    await sb.auth.signOut();
+    currentUser = null;
+    currentProfile = null;
+  }
+  go('s-key');
+}
+
 // Listen for auth state changes (e.g. email confirmation)
 sb.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_IN' && session?.user) {
@@ -138,6 +148,15 @@ async function handleSignOut() {
   await sb.auth.signOut();
   currentUser = null; currentProfile = null;
   SecureStore.clear();
+  // Reset BYOK key input so it's clean if they come back to it
+  const keyInput = document.getElementById('apiKeyInput');
+  const azureEp  = document.getElementById('azureEndpoint');
+  const azureKey = document.getElementById('azureKey');
+  if (keyInput) keyInput.value = '';
+  if (azureEp)  azureEp.value = '';
+  if (azureKey) azureKey.value = '';
+  const statusEl = document.getElementById('keyVerifyStatus');
+  if (statusEl) { statusEl.textContent = ''; statusEl.className = 'key-verify-status'; }
   go('s-launch');
   toast('Signed out');
 }
