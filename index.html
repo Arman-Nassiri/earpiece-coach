@@ -98,7 +98,7 @@
           <strong>Memory-only.</strong> Your key is never stored or logged — sent directly to your provider over HTTPS.
         </div>
       </div>
-      <p class="key-note" id="keyNote">Key goes directly to api.openai.com — no server in the middle.</p>
+      <p class="key-note" id="keyNote">Key goes directly to api.openai.com — no server in the middle. Live mode uses OpenAI Realtime.</p>
     </div>
     <div>
       <button class="btn" id="continueBtn" onclick="submitKey()">Verify &amp; Continue</button>
@@ -158,6 +158,7 @@
     <div class="prep-scroll" id="prepScroll"></div>
     <div class="prep-cta">
       <button class="btn" onclick="goLive()">Go Live</button>
+      <div class="info-hint">Live mode uses OpenAI Realtime. Prep and chat can still use other providers.</div>
     </div>
   </div>
 </div>
@@ -204,9 +205,18 @@
         <div class="c-idle-text">Listening for them to speak. Your line appears here.</div>
       </div>
       <div class="c-result" id="cResult">
-        <div class="tactic-tag" id="cTag">—</div>
-        <div class="c-line" id="cLine">—</div>
-        <div class="c-advice" id="cAdvice">—</div>
+        <div class="coach-field">
+          <div class="coach-field-label">• Tactic</div>
+          <div class="tactic-tag" id="cTag">—</div>
+        </div>
+        <div class="coach-field">
+          <div class="coach-field-label">• Say</div>
+          <div class="c-line" id="cLine">—</div>
+        </div>
+        <div class="coach-field coach-field-advice">
+          <div class="coach-field-label">• Why</div>
+          <div class="c-advice" id="cAdvice">—</div>
+        </div>
         <div class="c-actions">
           <button class="btn-said" onclick="markSaid()">Said it &#10003;</button>
           <button class="btn-ear on" id="earBtn" onclick="toggleEar()">EAR ON</button>

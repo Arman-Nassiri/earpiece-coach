@@ -303,14 +303,117 @@ const LIBRARY = [
     zopa:'' }
 ];
 
+const LIVE_SCENARIO_PROMPTS = {
+  salary: {
+    role: 'You are coaching a candidate negotiating compensation with a recruiter, manager, or hiring lead.',
+    objective: 'Protect leverage, keep tone polished, and advance pay, title, scope, or timing.',
+    examples: [
+      'If they say "What number did you have in mind?" -> line should sound like a clean compensation ask, not an introduction.',
+      'If they say "We are already at the top of the band." -> line should probe for flexibility in bonus, title, equity, or review timing.'
+    ]
+  },
+  rent: {
+    role: 'You are coaching a tenant speaking with a landlord, leasing office, or property manager.',
+    objective: 'Lower rent, secure concessions, or improve terms without sounding chaotic.',
+    examples: [
+      'If they say "What are you looking for?" -> line should state the target rent or concession directly.',
+      'If they say "That is our standard rate." -> line should calmly trade or push on flexibility.'
+    ]
+  },
+  car: {
+    role: 'You are coaching a buyer negotiating with a car dealer or sales manager.',
+    objective: 'Drive toward an out-the-door number and avoid getting dragged into monthly-payment framing.',
+    examples: [
+      'If they say "How can I help you today?" -> line should anchor the out-the-door price, not introduce yourself.',
+      'If they say "What monthly payment are you comfortable with?" -> line should redirect to total price.'
+    ]
+  },
+  freelance: {
+    role: 'You are coaching a freelancer or consultant negotiating rate and scope with a client.',
+    objective: 'Hold rate integrity, control scope, and trade only for something meaningful.',
+    examples: [
+      'If they say "What do you charge?" -> line should anchor the rate crisply.',
+      'If they say "That is above our budget." -> line should narrow scope or trade terms, not cave immediately.'
+    ]
+  },
+  joboffer: {
+    role: 'You are coaching someone countering an existing job offer.',
+    objective: 'Increase the offer while preserving momentum and rapport.',
+    examples: [
+      'If they say "What would it take for you to sign?" -> line should state the exact package needed.',
+      'If they say "We cannot move salary." -> line should push on other components or timing.'
+    ]
+  },
+  biz: {
+    role: 'You are coaching someone negotiating a business contract, vendor agreement, or commercial deal.',
+    objective: 'Hold commercial leverage, clarify value, and trade carefully.',
+    examples: [
+      'If they say "What are you looking for?" -> line should state terms directly.',
+      'If they say "That price is too high." -> line should reframe around scope, value, or trade.'
+    ]
+  },
+  severance: {
+    role: 'You are coaching an employee negotiating severance with HR, legal, or leadership.',
+    objective: 'Expand severance, benefits, timing, and release terms while staying calm and disciplined.',
+    examples: [
+      'If they say "What are you asking for?" -> line should state the severance package directly.',
+      'If they say "This is our standard package." -> line should push for justification and improved terms.'
+    ]
+  },
+  medical: {
+    role: 'You are coaching a patient or family member negotiating with hospital billing, a provider, or front-desk staff.',
+    objective: 'Reduce the bill, uncover hardship or discount paths, and keep the conversation human and specific.',
+    examples: [
+      'If they say "Hi, what are you here for?" -> line should explain you are here to discuss reducing a medical bill, never that you are an AI or coach.',
+      'If they say "We do not usually lower balances." -> line should push toward hardship review, itemized review, supervisor review, or settlement options.'
+    ]
+  },
+  realestate: {
+    role: 'You are coaching a buyer or seller negotiating with an agent, owner, or counterparty.',
+    objective: 'Drive price and terms while controlling emotion and pace.',
+    examples: [
+      'If they say "What are you thinking?" -> line should anchor price or terms directly.',
+      'If they say "We have other interest." -> line should call for specifics or hold the line.'
+    ]
+  },
+  equity: {
+    role: 'You are coaching a candidate or executive negotiating equity, signing bonus, or long-term compensation.',
+    objective: 'Push total upside, not just cash, and sound commercially mature.',
+    examples: [
+      'If they say "What would make this compelling?" -> line should state the mix of cash, equity, and bonus.',
+      'If they say "We are tighter on cash." -> line should push equity or milestone-based upside.'
+    ]
+  },
+  agency: {
+    role: 'You are coaching someone negotiating a retainer or agency agreement.',
+    objective: 'Protect price, avoid free scope, and trade on deliverables or term length.',
+    examples: [
+      'If they say "Tell me what you are proposing." -> line should state the retainer clearly.',
+      'If they say "Can you come down?" -> line should trade scope, term, or speed instead of dropping price nakedly.'
+    ]
+  },
+  raise: {
+    role: 'You are coaching an employee asking for a raise with a manager or leadership.',
+    objective: 'Push for a concrete raise and next-step timing without sounding vague.',
+    examples: [
+      'If they say "What did you want to discuss?" -> line should state the raise ask directly.',
+      'If they say "Budgets are tight." -> line should press on timing, criteria, and scope.'
+    ]
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // APP STATE
 // ─────────────────────────────────────────────────────────────────────────────
 let currentSC = null;
-let rec = null, audioCtx = null, analyser = null, animId = null;
-let silenceTimer = null, finalBuf = '', sessionHistory = [];
+let audioCtx = null, analyser = null, animId = null;
+let sessionHistory = [];
 let processing = false, earOn = true, darkMode = false;
 let generatedOpener = '', micActive = false;
+let liveAudioStream = null, livePeer = null, liveDataChannel = null;
+let liveTranscriptDrafts = new Map();
+let liveResponseBuffer = '';
+let liveCurrentCoach = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
@@ -466,11 +569,21 @@ function updateModelSelect(provider) {
   sel.onchange = () => { currentModel = sel.value; };
 }
 
+function getProviderNote(provider) {
+  const p = PROVIDERS[provider];
+  if (!p) return '';
+  if (provider === 'openai') {
+    return `${p.note} Live mode uses OpenAI Realtime.`;
+  }
+  return `${p.note} Live mode is still powered by OpenAI Realtime.`;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PROVIDER TABS
 // ─────────────────────────────────────────────────────────────────────────────
 (function initProviderTabs() {
   updateModelSelect('openai');
+  document.getElementById('keyNote').textContent = getProviderNote('openai');
   document.querySelectorAll('.ptab').forEach(tab => {
     tab.addEventListener('click', () => {
       document.querySelectorAll('.ptab').forEach(t => t.classList.remove('active'));
@@ -487,7 +600,7 @@ function updateModelSelect(provider) {
         document.getElementById('azureEndpoint').value = '';
         document.getElementById('azureKey').value = '';
       }
-      document.getElementById('keyNote').textContent = p.note;
+      document.getElementById('keyNote').textContent = getProviderNote(currentProvider);
       document.getElementById('keyVerifyStatus').textContent = '';
       document.getElementById('keyVerifyStatus').className = 'key-verify-status';
       updateModelSelect(currentProvider);
@@ -625,6 +738,368 @@ function getLiveValues() {
   return { anc, batna, zopa, customName };
 }
 
+function isLocalhost() {
+  return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname);
+}
+
+function hasSecureOriginForMedia() {
+  return window.isSecureContext || isLocalhost();
+}
+
+function getLiveStartupError() {
+  if (!hasSecureOriginForMedia()) {
+    return 'Live mode needs HTTPS or localhost. Run this app through a local server.';
+  }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    return 'This browser cannot access the microphone reliably for live mode.';
+  }
+  if (!window.RTCPeerConnection) {
+    return 'Live mode needs a browser with WebRTC support.';
+  }
+  return '';
+}
+
+function getRecognitionErrorMessage(code) {
+  switch (code) {
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return 'Microphone access was blocked. Allow mic access in Chrome and try again.';
+    case 'audio-capture':
+      return 'No microphone was found. Check your input device and browser permissions.';
+    case 'network':
+      return 'Speech recognition hit a network error. Check your connection and try again.';
+    case 'aborted':
+      return 'Microphone startup was interrupted. Try Live again.';
+    case 'no-speech':
+      return 'Listening... no speech detected yet.';
+    default:
+      return 'Speech recognition failed to start.';
+  }
+}
+
+function getRealtimeCoachContext() {
+  const { anc, batna, zopa, customName } = getLiveValues();
+  const sceneName = currentSC.id === 'custom' ? (customName || 'Custom') : currentSC.name;
+  return {
+    scenarioId: currentSC?.id || 'custom',
+    sceneName,
+    anc,
+    batna,
+    zopa,
+    customName,
+    hist: sessionHistory.slice(-8).map(h => {
+      if (h.r === 'them') return `Other party: ${h.t}`;
+      if (h.r === 'you') return `You: ${h.t}`;
+      return `Coach suggestion: ${h.t}`;
+    }).join('\n')
+  };
+}
+
+function getScenarioLiveOverlay(ctx) {
+  if (ctx.scenarioId === 'custom') {
+    return `Scenario-specific overlay:
+- This is a custom negotiation.
+- Who you are in the scene: ${ctx.customName || 'Not specified clearly yet'}
+- Your high anchor: ${ctx.anc[0] || 'n/a'}
+- Your BATNA: ${ctx.batna || 'n/a'}
+- Your likely range: ${ctx.zopa || 'n/a'}
+- Never invent a new identity or situation. Stay inside the custom scene above.
+- If the scene definition is weak, still answer as the user in that scene, not as an assistant.`;
+  }
+
+  const prompt = LIVE_SCENARIO_PROMPTS[ctx.scenarioId];
+  if (!prompt) return '';
+
+  return `Scenario-specific overlay:
+- ${prompt.role}
+- Objective: ${prompt.objective}
+- Examples:
+${prompt.examples.map(example => `  - ${example}`).join('\n')}`;
+}
+
+function buildRealtimeInstructions() {
+  const ctx = getRealtimeCoachContext();
+  return `You are a ruthless but practical negotiation coach whispering to the user in real time.
+
+Return a JSON object with exactly these keys:
+{"tag":"TACTIC","line":"Exactly what they should say verbatim","advice":"One sentence of tactical reasoning"}
+
+Global rules:
+- The transcript you hear is always what the OTHER PARTY just said.
+- Your job is to produce only the USER'S next spoken reply.
+- You are never the assistant, never an AI, never a negotiator introducing yourself, and never a narrator.
+- Never say you are here to help, never say you are an AI coach, and never explain your role.
+- Never answer as if you are talking to the user. You are writing the exact line the user should now say out loud to the other party.
+- tag: 1-3 words, ALL CAPS
+- line: exactly what the user should say next, one strong natural sentence, usually under 16 words
+- advice: one tactical sentence, specific and blunt
+- no markdown
+- no extra keys
+- no filler
+- line should sound like a real person mid-conversation, not a chatbot
+- if the other party asks a basic opener like "What are you here for?" or "How can I help?", respond inside the scenario immediately
+- bad line example: "I'm an AI negotiator here to help you."
+- bad line example: "As your coach, I recommend saying..."
+- good line example: "I'm here to talk about reducing this bill before it goes any further."
+- good line example: "I'm at $148,000."
+
+Negotiation: ${ctx.sceneName}
+High anchor: ${ctx.anc[0] || 'n/a'}
+Mid: ${ctx.anc[1] || 'n/a'}
+Floor: ${ctx.anc[2] || 'n/a'}
+BATNA: "${ctx.batna || 'n/a'}"
+Likely range: "${ctx.zopa || 'n/a'}"
+
+${getScenarioLiveOverlay(ctx)}
+${ctx.hist ? `\nRecent exchange:\n${ctx.hist}` : ''}`;
+}
+
+function buildLiveSessionUpdateEvent() {
+  return {
+    type: 'session.update',
+    session: {
+      type: 'realtime',
+      instructions: buildRealtimeInstructions(),
+      output_modalities: ['text'],
+      max_output_tokens: 220,
+      audio: {
+        input: {
+          transcription: {
+            model: 'gpt-4o-mini-transcribe'
+          },
+          turn_detection: {
+            type: 'server_vad',
+            create_response: true,
+            interrupt_response: true,
+            silence_duration_ms: 350,
+            idle_timeout_ms: 6000
+          }
+        }
+      }
+    }
+  };
+}
+
+function parseCoachPayload(text) {
+  const clean = (text || '').trim().replace(/```json|```/g, '').trim();
+  try {
+    const parsed = JSON.parse(clean);
+    if (parsed && parsed.tag && parsed.line && parsed.advice) {
+      return {
+        tag: String(parsed.tag).trim(),
+        line: String(parsed.line).trim(),
+        advice: String(parsed.advice).trim()
+      };
+    }
+  } catch(_) {}
+
+  const lineMatch = clean.match(/"line"\s*:\s*"([^"]+)"/i) || clean.match(/line\s*:\s*([^\n]+)/i);
+  const tagMatch = clean.match(/"tag"\s*:\s*"([^"]+)"/i) || clean.match(/tag\s*:\s*([^\n]+)/i);
+  const adviceMatch = clean.match(/"advice"\s*:\s*"([^"]+)"/i) || clean.match(/advice\s*:\s*([^\n]+)/i);
+
+  if (lineMatch) {
+    return {
+      tag: (tagMatch?.[1] || 'REFRAME').trim().replace(/^["']|["']$/g, ''),
+      line: lineMatch[1].trim().replace(/^["']|["']$/g, ''),
+      advice: (adviceMatch?.[1] || 'Hold your pace and force the conversation back onto your terms.')
+        .trim()
+        .replace(/^["']|["']$/g, '')
+    };
+  }
+
+  return {
+    tag: 'REFRAME',
+    line: clean || 'Let me think about that for a moment.',
+    advice: 'Hold your pace and force the conversation back onto your terms.'
+  };
+}
+
+function extractTextFromResponseDone(response) {
+  const parts = [];
+  for (const item of response?.output || []) {
+    if (!Array.isArray(item.content)) continue;
+    for (const content of item.content) {
+      if ((content.type === 'output_text' || content.type === 'text') && content.text) {
+        parts.push(content.text);
+      }
+    }
+  }
+  return parts.join('\n').trim();
+}
+
+function normalizeSpokenText(text) {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenSimilarity(a, b) {
+  const aTokens = normalizeSpokenText(a).split(' ').filter(Boolean);
+  const bTokens = normalizeSpokenText(b).split(' ').filter(Boolean);
+  if (!aTokens.length || !bTokens.length) return 0;
+
+  const aSet = new Set(aTokens);
+  const bSet = new Set(bTokens);
+  let overlap = 0;
+  for (const token of aSet) {
+    if (bSet.has(token)) overlap++;
+  }
+
+  return overlap / Math.max(aSet.size, bSet.size);
+}
+
+function shouldAutoMarkSaid(transcript) {
+  if (!liveCurrentCoach || liveCurrentCoach.delivered) return false;
+  const spoken = normalizeSpokenText(transcript);
+  const expected = liveCurrentCoach.normalizedLine;
+  if (!spoken || !expected) return false;
+
+  const contains = spoken.includes(expected) || expected.includes(spoken);
+  const similarity = tokenSimilarity(spoken, expected);
+  const lengthRatio = Math.min(spoken.length, expected.length) / Math.max(spoken.length, expected.length);
+  const recentlyCoached = Date.now() - liveCurrentCoach.createdAt < 12000;
+
+  return recentlyCoached && (contains || (similarity >= 0.72 && lengthRatio >= 0.68));
+}
+
+function resetLiveRealtimeState() {
+  liveTranscriptDrafts = new Map();
+  liveResponseBuffer = '';
+  processing = false;
+  liveCurrentCoach = null;
+}
+
+function handleRealtimeError(message, toastMessage = 'Live error') {
+  setS('idle', message);
+  toast(toastMessage);
+}
+
+function queueTranscriptTurn(transcript) {
+  const cleanTurn = sanitize(transcript);
+  if (!cleanTurn || cleanTurn.length < 4) {
+    setS('on', 'Listening...');
+    return;
+  }
+
+  if (shouldAutoMarkSaid(cleanTurn)) {
+    markSaid(true, cleanTurn);
+    return;
+  }
+
+  pushBubble(cleanTurn);
+  sessionHistory.push({ r: 'them', t: cleanTurn });
+  setTx('', '');
+}
+
+function finalizeRealtimeResponse() {
+  if (!liveResponseBuffer.trim()) {
+    processing = false;
+    setS('on', 'Listening...');
+    return;
+  }
+  const parsed = parseCoachPayload(liveResponseBuffer);
+  showCoach(parsed);
+  sessionHistory.push({ r: 'coach', t: parsed.line });
+  if (earOn) speak(parsed.line);
+  liveResponseBuffer = '';
+  processing = false;
+  setS('on', 'Listening...');
+}
+
+function handleRealtimeMessage(raw) {
+  let event;
+  try {
+    event = JSON.parse(raw.data);
+  } catch(_) {
+    return;
+  }
+
+  switch (event.type) {
+    case 'session.created':
+      console.debug('[live]', event.type, event);
+      break;
+    case 'session.updated':
+      console.debug('[live]', event.type, event);
+      setS('on', 'Listening...');
+      break;
+    case 'input_audio_buffer.speech_started':
+      setS('on', 'Hearing them...');
+      break;
+    case 'input_audio_buffer.speech_stopped':
+      setS('spin', 'Transcribing...');
+      processing = true;
+      break;
+    case 'conversation.item.input_audio_transcription.delta': {
+      const nextDraft = (liveTranscriptDrafts.get(event.item_id) || '') + (event.delta || '');
+      liveTranscriptDrafts.set(event.item_id, nextDraft);
+      setTx('', nextDraft.trim());
+      break;
+    }
+    case 'conversation.item.input_audio_transcription.completed': {
+      const transcript = (event.transcript || liveTranscriptDrafts.get(event.item_id) || '').trim();
+      liveTranscriptDrafts.delete(event.item_id);
+      queueTranscriptTurn(transcript);
+      break;
+    }
+    case 'conversation.item.input_audio_transcription.failed': {
+      liveTranscriptDrafts.delete(event.item_id);
+      processing = false;
+      const message = event.error?.message || 'The speech could not be transcribed.';
+      handleRealtimeError(message, 'Transcription failed');
+      break;
+    }
+    case 'response.created':
+      console.debug('[live]', event.type, event);
+      liveResponseBuffer = '';
+      processing = true;
+      break;
+    case 'response.output_item.done': {
+      if (!liveResponseBuffer.trim() && Array.isArray(event.item?.content)) {
+        for (const content of event.item.content) {
+          if ((content.type === 'output_text' || content.type === 'text') && content.text) {
+            liveResponseBuffer += content.text;
+          }
+        }
+      }
+      break;
+    }
+    case 'response.output_text.delta':
+      liveResponseBuffer += event.delta || '';
+      break;
+    case 'response.output_text.done':
+      liveResponseBuffer += event.text || '';
+      break;
+    case 'response.done':
+      if (event.response?.status && event.response.status !== 'completed') {
+        processing = false;
+        const message = event.response?.status_details?.error?.message
+          || event.response?.status_details?.reason
+          || `The live response ended with status: ${event.response.status}.`;
+        handleRealtimeError(message, 'Response failed');
+        break;
+      }
+      if (!liveResponseBuffer.trim()) {
+        liveResponseBuffer = extractTextFromResponseDone(event.response);
+      }
+      finalizeRealtimeResponse();
+      break;
+    case 'error': {
+      console.debug('[live]', event.type, event);
+      processing = false;
+      const message = event.error?.message || 'The realtime session failed.';
+      handleRealtimeError(message, 'Realtime error');
+      break;
+    }
+    default:
+      if (!/^rate_limits|^input_audio_buffer/.test(event.type)) {
+        console.debug('[live]', event.type, event);
+      }
+      break;
+  }
+}
+
 async function generateOpener() {
   const genBtn   = document.getElementById('openerGenBtn');
   const regenBtn = document.getElementById('openerRegenBtn');
@@ -669,6 +1144,12 @@ Return only the line.`
 }
 
 function goLive() {
+  const startupError = getLiveStartupError();
+  if (startupError) {
+    setS('idle', startupError);
+    toast('Live mode unavailable');
+    return;
+  }
   stopMic();
   resetLive();
   const { customName } = getLiveValues();
@@ -679,12 +1160,13 @@ function goLive() {
   earOn = true;
   syncEarUI();
   go('s-live');
+  setS('spin', 'Starting microphone...');
   setTimeout(startMic, 420);
 }
 
 function resetLive() {
-  finalBuf = ''; sessionHistory = []; processing = false; micActive = false;
-  clearTimeout(silenceTimer);
+  sessionHistory = []; micActive = false;
+  resetLiveRealtimeState();
   document.getElementById('cIdle').style.display = 'flex';
   document.getElementById('cResult').classList.remove('show');
   document.getElementById('coachCard').classList.remove('live');
@@ -714,118 +1196,163 @@ function confirmEnd(btn) {
 // ─────────────────────────────────────────────────────────────────────────────
 // MIC
 // ─────────────────────────────────────────────────────────────────────────────
-function startMic() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { setS('idle', "Use Chrome — speech recognition isn't available here."); return; }
-  rec = new SR();
-  rec.continuous = true; rec.interimResults = true; rec.lang = 'en-US';
-  rec.onstart = () => setS('on', 'Listening...');
-  rec.onresult = e => {
-    let interim = '', newFinal = '';
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      const t = e.results[i][0].transcript;
-      e.results[i].isFinal ? (newFinal += t + ' ') : (interim += t);
+async function startMic() {
+  const startupError = getLiveStartupError();
+  if (startupError) {
+    setS('idle', startupError);
+    return;
+  }
+
+  try {
+    liveAudioStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: false
+    });
+  } catch(err) {
+    setS('idle', getRecognitionErrorMessage(err?.name === 'NotAllowedError' ? 'not-allowed' : 'audio-capture'));
+    return;
+  }
+
+  try {
+    startVol(liveAudioStream);
+
+    livePeer = new RTCPeerConnection();
+    liveDataChannel = livePeer.createDataChannel('oai-events');
+    liveDataChannel.addEventListener('open', () => {
+      liveDataChannel.send(JSON.stringify(buildLiveSessionUpdateEvent()));
+      setS('spin', 'Configuring live coach...');
+    });
+    liveDataChannel.addEventListener('message', handleRealtimeMessage);
+    liveDataChannel.addEventListener('close', () => {
+      if (micActive) handleRealtimeError('Live connection closed. Start Live again.', 'Connection closed');
+    });
+    liveDataChannel.addEventListener('error', () => handleRealtimeError('Live data channel failed.', 'Channel error'));
+
+    livePeer.addEventListener('connectionstatechange', () => {
+      if (['failed', 'disconnected', 'closed'].includes(livePeer.connectionState) && micActive) {
+        handleRealtimeError('Realtime connection dropped. Start Live again.', 'Connection dropped');
+      }
+    });
+
+    liveAudioStream.getTracks().forEach(track => livePeer.addTrack(track, liveAudioStream));
+
+    const offer = await livePeer.createOffer();
+    await livePeer.setLocalDescription(offer);
+
+    const liveHeaders = { 'Content-Type': 'application/sdp' };
+    if (currentProvider === 'openai' && SecureStore.has()) {
+      liveHeaders['X-OpenAI-Key'] = SecureStore.get();
     }
-    if (newFinal) {
-      finalBuf += newFinal; setTx(finalBuf.trim(), '');
-      clearTimeout(silenceTimer); silenceTimer = setTimeout(coach, 1800);
+
+    const response = await fetch('/api/live/call', {
+      method: 'POST',
+      headers: liveHeaders,
+      body: offer.sdp
+    });
+
+    if (!response.ok) {
+      let message = 'Could not start the realtime session.';
+      try {
+        const err = await response.json();
+        message = err.error || message;
+      } catch(_) {}
+      throw new Error(message);
     }
-    if (interim) setTx(finalBuf.trim(), interim);
-    setS('on', 'Hearing them...');
-  };
-  rec.onerror = e => { if (e.error === 'not-allowed') setS('idle', 'Mic blocked — allow access in settings.'); };
-  rec.onend = () => { if (micActive && rec) { setTimeout(() => { try { rec && rec.start(); } catch(e) {} }, 300); } };
-  micActive = true;
-  try { rec.start(); } catch(e) {}
-  startVol();
+
+    const answerSdp = await response.text();
+    await livePeer.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    micActive = true;
+    setS('spin', 'Connecting to realtime coach...');
+  } catch(err) {
+    stopMic();
+    handleRealtimeError(err.message || 'Could not start the realtime coach.', 'Live start failed');
+  }
 }
 
 function stopMic() {
-  micActive = false; clearTimeout(silenceTimer);
-  if (rec)      { try { rec.abort();      } catch(e) {} rec = null; }
+  micActive = false;
+  resetLiveRealtimeState();
+  stopSpeech();
+  if (liveDataChannel) {
+    try { liveDataChannel.close(); } catch(_) {}
+    liveDataChannel = null;
+  }
+  if (livePeer) {
+    try { livePeer.close(); } catch(_) {}
+    livePeer = null;
+  }
   if (audioCtx) { try { audioCtx.close(); } catch(e) {} audioCtx = null; }
+  if (liveAudioStream) {
+    liveAudioStream.getTracks().forEach(track => track.stop());
+    liveAudioStream = null;
+  }
+  analyser = null;
   if (animId)   { cancelAnimationFrame(animId); animId = null; }
 }
 
-function startVol() {
-  navigator.mediaDevices.getUserMedia({ audio: true, video: false }).then(stream => {
+function startVol(stream) {
+  if (!stream) return;
+  if (audioCtx) { try { audioCtx.close(); } catch(_) {} }
+  try {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioCtx.createAnalyser(); analyser.fftSize = 128;
     audioCtx.createMediaStreamSource(stream).connect(analyser);
     const data = new Uint8Array(analyser.frequencyBinCount);
     const bars = document.querySelectorAll('.vb');
     function tick() {
+      if (!analyser) return;
       analyser.getByteFrequencyData(data);
       const avg = data.reduce((a,b) => a+b, 0) / data.length;
       bars.forEach((b,i) => b.classList.toggle('lit', avg > (i+1)*4));
       animId = requestAnimationFrame(tick);
     }
     tick();
-  }).catch(() => {});
+  } catch(_) {
+    toast('Volume meter unavailable');
+  }
 }
 
 function setTx(fin, int) {
-  document.getElementById('tLive').innerHTML = `<span>${fin}</span><span class="t-interim"> ${int}</span>`;
+  document.getElementById('tLive').innerHTML = `<span>${fin || ''}</span><span class="t-interim">${int ? ` ${int}` : ''}</span>`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COACHING
 // ─────────────────────────────────────────────────────────────────────────────
-async function coach() {
-  const text = finalBuf.trim();
-  if (!text || text.length < 4 || processing) return;
-  processing = true; setS('spin', 'Getting your line...');
-  pushBubble(text); finalBuf = '';
-  document.getElementById('tLive').innerHTML = '';
-  const { anc, batna, zopa, customName } = getLiveValues();
-  const sceneName = currentSC.id === 'custom' ? customName : currentSC.name;
-  const ctx = `a ${sceneName} negotiation. High anchor: ${anc[0]}. Mid: ${anc[1]||'n/a'}. Floor: ${anc[2]||'n/a'}. BATNA: "${batna}". Range: "${zopa}".`;
-  const hist = sessionHistory.slice(-4).map(h => `${h.r==='them'?'Other party':'Coach'}: ${h.t}`).join('\n');
-  const safeText = sanitize(text);
-  try {
-    const content = await secureAPICall([
-      {
-        role: 'system',
-        content: `You are a negotiation coach whispering through someone's earpiece. They are in ${ctx}
-
-Return a JSON object with exactly these keys:
-{"tag":"TACTIC","line":"Exactly what they should say verbatim","advice":"One sentence of tactical reasoning"}
-
-tag = 1–3 words ALL CAPS (ANCHOR HOLD, PROBE, FLINCH, WALK, REFRAME, SILENCE, TRADE, CALL BLUFF)
-line = one confident natural sentence — sounds like a real person
-advice = specific tactical reasoning, not generic
-Be bold. No filler.`
-      },
-      {
-        role: 'user',
-        content: `${hist ? 'Recent exchange:\n' + hist + '\n\n' : ''}They just said:\n"${safeText}"\n\nGive me my line.`
-      }
-    ], 180, true);
-    const parsed = JSON.parse(content.trim().replace(/```json|```/g, ''));
-    showCoach(parsed);
-    sessionHistory.push({ r:'them', t:safeText }, { r:'coach', t:parsed.line });
-    if (earOn) speak(parsed.line);
-  } catch(err) {
-    showCoach({ tag:'PAUSE', line:'Let me think about that for a moment.', advice:'Deliberate silence applies pressure. Never rush under stress.' });
-  }
-  processing = false; setS('on', 'Listening...');
-}
-
 function showCoach({ tag, line, advice }) {
   document.getElementById('cIdle').style.display = 'none';
   document.getElementById('cTag').textContent = tag;
   document.getElementById('cLine').textContent = `"${line}"`;
   document.getElementById('cAdvice').textContent = advice;
+  liveCurrentCoach = {
+    tag,
+    line,
+    advice,
+    normalizedLine: normalizeSpokenText(line),
+    createdAt: Date.now(),
+    delivered: false
+  };
   const r = document.getElementById('cResult');
   r.classList.remove('show'); void r.offsetWidth; r.classList.add('show');
   document.getElementById('coachCard').classList.add('live');
 }
 
-function markSaid() {
+function markSaid(auto = false, deliveredLine = '') {
+  if (liveCurrentCoach && !liveCurrentCoach.delivered) {
+    const finalLine = sanitize(deliveredLine) || liveCurrentCoach.line;
+    sessionHistory.push({ r: 'you', t: finalLine });
+    liveCurrentCoach.delivered = true;
+  }
   document.getElementById('cResult').classList.remove('show');
   document.getElementById('coachCard').classList.remove('live');
   setTimeout(() => document.getElementById('cIdle').style.display = 'flex', 220);
-  setS('on', 'Good. Listening for their reply...'); toast('Logged');
+  setS('on', auto ? 'Delivered. Listening for their reply...' : 'Good. Listening for their reply...');
+  toast(auto ? 'Marked as said' : 'Logged');
 }
 
 function pushBubble(text) {
@@ -839,11 +1366,16 @@ function pushBubble(text) {
 // ─────────────────────────────────────────────────────────────────────────────
 // TTS
 // ─────────────────────────────────────────────────────────────────────────────
-function speak(text) {
+function stopSpeech() {
   if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
+}
+
+function speak(text) {
+  if (!window.speechSynthesis || !earOn) return;
+  stopSpeech();
   const u = new SpeechSynthesisUtterance(text);
-  u.rate = 0.87; u.pitch = 1; u.volume = 1;
+  u.rate = 1.06; u.pitch = 1; u.volume = 1;
   const v = window.speechSynthesis.getVoices().find(v => /Samantha|Karen|Google US English|Alex/.test(v.name));
   if (v) u.voice = v;
   window.speechSynthesis.speak(u);
@@ -866,6 +1398,7 @@ function syncEarUI() {
 
 function toggleEar() {
   earOn = !earOn;
+  if (!earOn) stopSpeech();
   syncEarUI();
   toast(earOn ? 'Earpiece on' : 'Earpiece off');
 }

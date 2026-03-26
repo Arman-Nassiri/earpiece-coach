@@ -1,0 +1,9 @@
+{
+  "name": "gibsel-cue",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Realtime negotiation coach",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

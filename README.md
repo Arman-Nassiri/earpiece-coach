@@ -1,6 +1,6 @@
 # Gibsel Cue
 
-Real-time AI negotiation coach delivered via earpiece. Listens to the other party, transcribes speech, and whispers tactical response lines.
+Real-time AI negotiation coach delivered via earpiece. Listens to the other party, transcribes speech, and surfaces tactical response lines in real time.
 
 ## Project Structure
 
@@ -8,7 +8,9 @@ Real-time AI negotiation coach delivered via earpiece. Listens to the other part
 gibsel-cue/
 ├── index.html      ← HTML skeleton (screens, DOM)
 ├── styles.css      ← All CSS (design system, screens, components)
-├── app.js          ← All frontend JS (auth, coaching, Supabase, Stripe)
+├── app.js          ← All frontend JS (BYOK flows, prep, chat, realtime live UI)
+├── server.js       ← Minimal Node server for static hosting + OpenAI Realtime call setup
+├── package.json
 ├── .gitignore
 └── README.md
 ```
@@ -16,26 +18,32 @@ gibsel-cue/
 ## Tech Stack
 
 - **Frontend**: Vanilla HTML/CSS/JS — no build step, no framework
-- **Auth**: Supabase (email/password, session persistence)
-- **Payments**: Stripe Checkout
-- **AI**: Multi-provider (OpenAI, Anthropic, Google, Azure, Meta) — BYOK or Pro server-side
-- **Speech**: Web Speech API (Chrome/Safari)
-- **TTS**: Web Speech Synthesis (earpiece output)
+- **Server**: Minimal Node HTTP server for local/dev hosting and Realtime call negotiation
+- **AI**: Multi-provider BYOK for prep/chat, OpenAI Realtime over WebRTC for live mode
+- **Speech**: OpenAI Realtime transcription for live mode
+- **TTS**: Optional browser speech synthesis for the earpiece toggle
 
 ## Local Development
 
-Just open `index.html` in Chrome. No build step required.
+Live mode now depends on the bundled Node server because the browser needs a same-origin endpoint that starts the OpenAI Realtime WebRTC call.
 
 ```bash
-# Option 1: Python simple server (recommended — avoids CORS quirks)
-python3 -m http.server 8080
-# Then open http://localhost:8080
-
-# Option 2: VS Code Live Server extension
-# Right-click index.html → Open with Live Server
+npm start
+# Then open http://localhost:3000
 ```
 
-> **Note:** Stripe Checkout requires HTTPS. On localhost it will throw an error — this is expected. It works on the live domain (`cue.gibsel.com`).
+Live mode auth options:
+
+- Preferred: set `OPENAI_API_KEY` on the server
+- Fallback: if the user entered an OpenAI BYOK key in the app, live mode can reuse that key through the local server
+
+Optional environment variables:
+
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | Server-side OpenAI key for live mode |
+| `OPENAI_REALTIME_MODEL` | Defaults to `gpt-realtime` |
+| `OPENAI_TRANSCRIBE_MODEL` | Defaults to `gpt-4o-mini-transcribe` |
 
 ## VPS Deployment
 
@@ -76,19 +84,9 @@ git push origin main
 cd /var/www/gibsel-cue && git pull
 ```
 
-## Environment / Config
+## Rollback
 
-All config is at the top of `app.js`:
-
-| Variable | Description |
-|---|---|
-| `SUPABASE_URL` | Your Supabase project URL |
-| `SUPABASE_ANON` | Supabase anon public key |
-| `STRIPE_KEY` | Stripe publishable key (safe to expose) |
-| `STRIPE_PRICE` | Stripe Price ID for Pro subscription |
-| `APP_URL` | Auto-detected from `window.location.origin` |
-
-> The Supabase anon key and Stripe publishable key are safe to commit — they are designed to be public. Never commit secret keys.
+The pre-Realtime version is preserved as the git branch `backup/pre-realtime-live`.
 
 ## Roadmap
 
