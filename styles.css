@@ -25,6 +25,7 @@
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --cta-pb: calc(20px + var(--sab));
   --sidebar: 280px;
+  --top-safe-gap: max(calc(var(--sat) + 20px), 56px);
 }
 
 [data-theme="dark"] {
@@ -216,7 +217,7 @@ html, body {
 #s-launch { align-items: center; justify-content: flex-end; padding: 0; }
 .launch-inner {
   width: 100%; max-width: 480px;
-  padding: calc(var(--sat) + 48px) 28px calc(var(--sab) + 44px);
+  padding: calc(var(--top-safe-gap) + 28px) 28px calc(var(--sab) + 44px);
   display: flex; flex-direction: column; flex: 1;
 }
 .launch-top { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -237,7 +238,7 @@ html, body {
 #s-key { align-items: center; justify-content: flex-end; padding: 0; }
 .key-inner {
   width: 100%; max-width: 480px;
-  padding: calc(var(--sat) + 28px) 28px calc(var(--sab) + 44px);
+  padding: var(--top-safe-gap) 28px calc(var(--sab) + 44px);
   display: flex; flex-direction: column; flex: 1;
 }
 .key-back-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 28px; }
@@ -283,7 +284,7 @@ html, body {
 #s-gate { align-items: center; justify-content: flex-end; padding: 0; }
 .gate-inner {
   width: 100%; max-width: 480px;
-  padding: calc(var(--sat) + 48px) 28px calc(var(--sab) + 44px);
+  padding: calc(var(--top-safe-gap) + 28px) 28px calc(var(--sab) + 44px);
   display: flex; flex-direction: column; flex: 1;
 }
 .gate-top { flex: 1; display: flex; flex-direction: column; justify-content: center; }
@@ -301,7 +302,7 @@ html, body {
 .home-sidebar {
   display: flex; flex-direction: row;
   align-items: flex-start; justify-content: space-between;
-  padding: max(calc(var(--sat) + 20px), 52px) 22px 0;
+  padding: var(--top-safe-gap) 22px 0;
   flex-shrink: 0;
 }
 .home-sidebar-top { display: flex; flex-direction: column; }
@@ -398,7 +399,7 @@ html, body {
 /* Mobile nav bar — hidden on desktop */
 .nav-bar {
   display: flex; align-items: center; gap: 10px;
-  padding: calc(max(var(--sat), 14px) + 6px) 18px 14px;
+  padding: calc(var(--top-safe-gap) - 8px) 18px 14px;
   background: var(--bg); border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 10; flex-shrink: 0;
 }
@@ -564,7 +565,7 @@ html, body {
 /* Mobile nav — hidden on desktop */
 .live-nav {
   display: flex; align-items: center;
-  padding: calc(max(var(--sat), 14px) + 6px) 18px 12px;
+  padding: calc(var(--top-safe-gap) - 8px) 18px 12px;
   border-bottom: 1px solid var(--border); background: var(--bg);
   flex-shrink: 0; gap: 10px;
 }
