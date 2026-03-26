@@ -110,6 +110,13 @@ html, body {
 }
 .icon-btn:active { transform: scale(0.9); background: var(--bg2); }
 .icon-btn:hover { background: var(--bg2); }
+.contact-btn {
+  text-decoration: none;
+  padding: 0 12px;
+  width: auto;
+  min-width: 44px;
+  color: var(--text2);
+}
 
 /* ── MODAL SHEET ── */
 .modal-overlay {
@@ -233,7 +240,7 @@ html, body {
   padding: calc(var(--sat) + 28px) 28px calc(var(--sab) + 44px);
   display: flex; flex-direction: column; flex: 1;
 }
-.key-back-row { display: flex; align-items: center; margin-bottom: 28px; }
+.key-back-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 28px; }
 .key-back {
   min-width: 44px; min-height: 44px; border-radius: 12px;
   background: var(--surface); border: 1.5px solid var(--border);
