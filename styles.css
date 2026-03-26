@@ -9,6 +9,8 @@
   --sab: env(safe-area-inset-bottom, 0px);
   --sal: env(safe-area-inset-left, 0px);
   --sar: env(safe-area-inset-right, 0px);
+  --app-height: 100dvh;
+  --app-offset-top: 0px;
   --bg:      #F5F3EF;
   --bg2:     #EEECE7;
   --bg3:     #E6E3DC;
@@ -25,7 +27,7 @@
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --cta-pb: calc(20px + var(--sab));
   --sidebar: 280px;
-  --top-safe-gap: max(calc(var(--sat) + 32px), 80px);
+  --top-safe-gap: max(calc(var(--sat) + var(--app-offset-top) + 32px), 12svh, 88px);
 }
 
 [data-theme="dark"] {
@@ -51,7 +53,10 @@ html, body {
 
 /* ── SCREENS ── */
 .screen {
-  position: fixed; inset: 0;
+  position: fixed;
+  top: var(--app-offset-top);
+  left: 0;
+  right: 0;
   display: flex; flex-direction: column;
   opacity: 0; pointer-events: none;
   transform: translateX(100%);
@@ -59,8 +64,13 @@ html, body {
   overflow-y: auto; overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   background: var(--bg);
+  height: var(--app-height);
+  min-height: var(--app-height);
   padding-left: var(--sal);
   padding-right: var(--sar);
+}
+@media (max-width: 767px) {
+  .screen { min-height: var(--app-height); }
 }
 #s-launch, #s-key, #s-gate { transform: translateY(16px); }
 #s-launch.active, #s-key.active, #s-gate.active { transform: translateY(0); }

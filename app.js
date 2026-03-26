@@ -145,6 +145,25 @@ let currentProvider = 'openai';
 let currentModel = 'gpt-4.1-mini';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// VIEWPORT SYNC
+// ─────────────────────────────────────────────────────────────────────────────
+function syncViewportFrame() {
+  const root = document.documentElement;
+  const viewport = window.visualViewport;
+  const height = viewport?.height ?? window.innerHeight;
+  const offsetTop = viewport?.offsetTop ?? 0;
+  root.style.setProperty('--app-height', `${Math.round(height)}px`);
+  root.style.setProperty('--app-offset-top', `${Math.max(0, Math.round(offsetTop))}px`);
+}
+
+window.addEventListener('resize', syncViewportFrame, { passive: true });
+window.addEventListener('orientationchange', syncViewportFrame, { passive: true });
+window.visualViewport?.addEventListener('resize', syncViewportFrame, { passive: true });
+window.visualViewport?.addEventListener('scroll', syncViewportFrame, { passive: true });
+document.addEventListener('DOMContentLoaded', syncViewportFrame);
+syncViewportFrame();
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SANITIZE
 // ─────────────────────────────────────────────────────────────────────────────
 function sanitize(str) {
