@@ -457,6 +457,7 @@ let liveTranscriptDrafts = new Map();
 let liveResponseBuffer = '';
 let liveCurrentCoach = null;
 let currentNegotiationStyle = 'composed';
+let pendingSpeechTimer = null;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
@@ -989,7 +990,7 @@ function buildLiveSessionUpdateEvent() {
             type: 'server_vad',
             create_response: true,
             interrupt_response: true,
-            silence_duration_ms: 350,
+            silence_duration_ms: 600,
             idle_timeout_ms: 6000
           }
         }
@@ -1131,6 +1132,10 @@ function resetLiveRealtimeState() {
   liveResponseBuffer = '';
   processing = false;
   liveCurrentCoach = null;
+  if (pendingSpeechTimer) {
+    clearTimeout(pendingSpeechTimer);
+    pendingSpeechTimer = null;
+  }
 }
 
 function handleRealtimeError(message, toastMessage = 'Live error') {
@@ -1164,7 +1169,7 @@ function finalizeRealtimeResponse() {
   const parsed = parseCoachPayload(liveResponseBuffer);
   showCoach(parsed);
   sessionHistory.push({ r: 'coach', t: parsed.line });
-  if (earOn) speak(parsed.line);
+  queueSpeech(parsed.line);
   liveResponseBuffer = '';
   processing = false;
   setS('on', 'Listening...');
@@ -1187,6 +1192,11 @@ function handleRealtimeMessage(raw) {
       setS('on', 'Listening...');
       break;
     case 'input_audio_buffer.speech_started':
+      if (pendingSpeechTimer) {
+        clearTimeout(pendingSpeechTimer);
+        pendingSpeechTimer = null;
+      }
+      stopSpeech();
       setS('on', 'Hearing them...');
       break;
     case 'input_audio_buffer.speech_stopped':
@@ -1536,13 +1546,26 @@ function pushBubble(text) {
 // TTS
 // ─────────────────────────────────────────────────────────────────────────────
 function stopSpeech() {
+  if (pendingSpeechTimer) {
+    clearTimeout(pendingSpeechTimer);
+    pendingSpeechTimer = null;
+  }
   if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
 }
 
+function queueSpeech(text) {
+  if (!earOn) return;
+  stopSpeech();
+  pendingSpeechTimer = setTimeout(() => {
+    pendingSpeechTimer = null;
+    speak(text);
+  }, 320);
+}
+
 function speak(text) {
   if (!window.speechSynthesis || !earOn) return;
-  stopSpeech();
+  window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.rate = 1.06; u.pitch = 1; u.volume = 1;
   const v = window.speechSynthesis.getVoices().find(v => /Samantha|Karen|Google US English|Alex/.test(v.name));
