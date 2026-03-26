@@ -918,7 +918,7 @@ Return a JSON object with exactly these keys:
 {"tag":"TACTIC","line":"Exactly what they should say verbatim","advice":"One sentence of tactical reasoning"}
 
 Global rules:
-- The transcript you hear is always what the OTHER PARTY just said.
+- Assume the transcript you receive is the OTHER PARTY'S latest turn.
 - Your job is to produce only the USER'S next spoken reply.
 - You are never the assistant, never an AI, never a negotiator introducing yourself, and never a narrator.
 - Never say you are here to help, never say you are an AI coach, and never explain your role.
@@ -944,13 +944,17 @@ Global rules:
 - good line example: "I'm at $148,000."
 
 Coaching doctrine:
-- Anchor early when appropriate.
-- Trade, do not give.
-- Push for specificity when they are vague.
-- Preserve optionality and pace.
-- Protect the floor.
-- Make the counterparty do work.
-- Never let the user sound desperate, defensive, or over-grateful.
+- Protect the user's BATNA and never expose their real floor.
+- Find the ZOPA without revealing where the user actually breaks.
+- Anchor early and with conviction; if they anchor first, re-anchor hard enough to reframe.
+- Trade, do not give. Every concession should buy something.
+- Use calibrated how and what questions to push problem-solving back onto them.
+- Use tactical empathy, mirrors, and labels to lower resistance and surface real constraints.
+- Treat silence as leverage. Do not reward pressure with extra words.
+- Separate fake urgency from real urgency; slow down when they try to rush.
+- Push for specificity when they are vague, emotional, or hiding behind policy.
+- Close conditionally: tie the user's give to their commitment.
+- Never let the user sound desperate, defensive, over-grateful, or eager to rescue the deal.
 
 Delivery style:
 - Selected style: ${ctx.style.label}
@@ -1049,6 +1053,19 @@ function normalizeSpokenText(text) {
     .trim();
 }
 
+const SPOKEN_FILLER_TOKENS = new Set([
+  'a','an','and','are','at','be','but','for','from','got','here','hey','hi','i','im','is',
+  'it','its','just','kind','like','me','my','now','of','ok','okay','really','say','so',
+  'that','the','their','them','there','this','to','uh','um','we','well','what','with','you',
+  'your'
+]);
+
+function getMeaningfulTokens(text) {
+  return normalizeSpokenText(text)
+    .split(' ')
+    .filter(token => token && !SPOKEN_FILLER_TOKENS.has(token));
+}
+
 function tokenSimilarity(a, b) {
   const aTokens = normalizeSpokenText(a).split(' ').filter(Boolean);
   const bTokens = normalizeSpokenText(b).split(' ').filter(Boolean);
@@ -1064,18 +1081,49 @@ function tokenSimilarity(a, b) {
   return overlap / Math.max(aSet.size, bSet.size);
 }
 
+function orderedCoverage(spokenTokens, expectedTokens) {
+  if (!spokenTokens.length || !expectedTokens.length) return 0;
+  let idx = 0;
+  for (const token of spokenTokens) {
+    if (token === expectedTokens[idx]) idx++;
+    if (idx === expectedTokens.length) break;
+  }
+  return idx / expectedTokens.length;
+}
+
 function shouldAutoMarkSaid(transcript) {
   if (!liveCurrentCoach || liveCurrentCoach.delivered) return false;
   const spoken = normalizeSpokenText(transcript);
   const expected = liveCurrentCoach.normalizedLine;
   if (!spoken || !expected) return false;
 
-  const contains = spoken.includes(expected) || expected.includes(spoken);
-  const similarity = tokenSimilarity(spoken, expected);
+  const spokenMeaningful = getMeaningfulTokens(transcript);
+  const expectedMeaningful = liveCurrentCoach.meaningfulTokens || getMeaningfulTokens(liveCurrentCoach.line);
+  const spokenMeaningfulText = spokenMeaningful.join(' ');
+  const expectedMeaningfulText = expectedMeaningful.join(' ');
+  const containsFull = spoken.includes(expected) || expected.includes(spoken);
+  const containsMeaningful = !!expectedMeaningfulText && (
+    spokenMeaningfulText.includes(expectedMeaningfulText) ||
+    expectedMeaningfulText.includes(spokenMeaningfulText)
+  );
+  const similarityFull = tokenSimilarity(spoken, expected);
+  const similarityMeaningful = expectedMeaningfulText && spokenMeaningfulText
+    ? tokenSimilarity(spokenMeaningfulText, expectedMeaningfulText)
+    : 0;
+  const coverage = orderedCoverage(spokenMeaningful, expectedMeaningful);
   const lengthRatio = Math.min(spoken.length, expected.length) / Math.max(spoken.length, expected.length);
-  const recentlyCoached = Date.now() - liveCurrentCoach.createdAt < 12000;
+  const meaningfulLengthRatio = expectedMeaningful.length && spokenMeaningful.length
+    ? Math.min(spokenMeaningful.length, expectedMeaningful.length) / Math.max(spokenMeaningful.length, expectedMeaningful.length)
+    : 0;
+  const recentlyCoached = Date.now() - liveCurrentCoach.createdAt < 18000;
 
-  return recentlyCoached && (contains || (similarity >= 0.72 && lengthRatio >= 0.68));
+  return recentlyCoached && (
+    containsFull ||
+    containsMeaningful ||
+    (similarityFull >= 0.76 && lengthRatio >= 0.7) ||
+    (similarityMeaningful >= 0.74 && meaningfulLengthRatio >= 0.58) ||
+    (coverage >= 0.84 && meaningfulLengthRatio >= 0.5)
+  );
 }
 
 function resetLiveRealtimeState() {
@@ -1454,6 +1502,7 @@ function showCoach({ tag, line, advice }) {
     line,
     advice,
     normalizedLine: normalizeSpokenText(line),
+    meaningfulTokens: getMeaningfulTokens(line),
     createdAt: Date.now(),
     delivered: false
   };
