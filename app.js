@@ -746,6 +746,16 @@ function hasSecureOriginForMedia() {
   return window.isSecureContext || isLocalhost();
 }
 
+function getBrowserSupportLevel() {
+  const ua = navigator.userAgent || '';
+  const isDesktop = !/Android|iPhone|iPad|iPod/i.test(ua);
+  const isChromium = /Chrome|CriOS|Edg\//i.test(ua) && !/Firefox|FxiOS/i.test(ua);
+  if (isDesktop && isChromium) {
+    return 'supported';
+  }
+  return 'limited';
+}
+
 function getLiveStartupError() {
   if (!hasSecureOriginForMedia()) {
     return 'Live mode needs HTTPS or localhost. Run this app through a local server.';
@@ -757,6 +767,11 @@ function getLiveStartupError() {
     return 'Live mode needs a browser with WebRTC support.';
   }
   return '';
+}
+
+function getLiveBrowserWarning() {
+  if (getBrowserSupportLevel() === 'supported') return '';
+  return 'Live mode works best on Chrome desktop. This browser may be less reliable.';
 }
 
 function getRecognitionErrorMessage(code) {
@@ -1150,6 +1165,10 @@ function goLive() {
     toast('Live mode unavailable');
     return;
   }
+  const browserWarning = getLiveBrowserWarning();
+  if (browserWarning) {
+    toast('Best on Chrome desktop');
+  }
   stopMic();
   resetLive();
   const { customName } = getLiveValues();
@@ -1160,7 +1179,7 @@ function goLive() {
   earOn = true;
   syncEarUI();
   go('s-live');
-  setS('spin', 'Starting microphone...');
+  setS('spin', browserWarning || 'Starting microphone...');
   setTimeout(startMic, 420);
 }
 
