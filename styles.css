@@ -508,6 +508,49 @@ html, body {
 }
 .textarea-field::placeholder { color: var(--text3); }
 .info-hint { font-size: 12px; color: var(--text3); margin-top: 10px; line-height: 1.65; }
+.style-chip-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.style-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  min-height: 64px;
+  padding: 13px 14px;
+  border-radius: var(--rs);
+  border: 1.5px solid var(--border);
+  background: var(--bg2);
+  color: var(--text2);
+  cursor: pointer;
+  font-family: 'DM Sans', sans-serif;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s, color 0.15s;
+}
+.style-chip:hover { background: var(--surface); border-color: var(--border2); }
+.style-chip:active { transform: scale(0.985); }
+.style-chip.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+.style-chip-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: inherit;
+}
+.style-chip-sub {
+  font-size: 11px;
+  line-height: 1.45;
+  color: inherit;
+  opacity: 0.72;
+}
+@media (max-width: 420px) {
+  .style-chip-grid { grid-template-columns: 1fr; }
+}
 
 /* Opener */
 .opener-card {

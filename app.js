@@ -421,6 +421,29 @@ const LIVE_SCENARIO_PROMPTS = {
   }
 };
 
+const NEGOTIATION_STYLES = {
+  composed: {
+    label: 'Composed',
+    sub: 'Calm, premium, measured',
+    guidance: 'Sound calm, expensive, and in control. Short sentences. No emotional leakage. Push without sounding needy.'
+  },
+  assertive: {
+    label: 'Assertive',
+    sub: 'Firm, direct, high-leverage',
+    guidance: 'Sound direct and hard to move. Lead with the ask. Apply pressure cleanly. Never ramble or over-explain.'
+  },
+  warm: {
+    label: 'Warm',
+    sub: 'Human, empathetic, credible',
+    guidance: 'Sound human and approachable while still protecting the number. Use warmth to lower resistance, not to surrender leverage.'
+  },
+  surgical: {
+    label: 'Surgical',
+    sub: 'Precise, analytical, disciplined',
+    guidance: 'Sound highly precise and tactical. Clarify numbers, policy, and tradeoffs. Use tight wording and force specificity.'
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // APP STATE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -433,6 +456,7 @@ let liveAudioStream = null, livePeer = null, liveDataChannel = null;
 let liveTranscriptDrafts = new Map();
 let liveResponseBuffer = '';
 let liveCurrentCoach = null;
+let currentNegotiationStyle = 'composed';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
@@ -709,6 +733,12 @@ function buildPrep() {
       <input class="field-input" id="custom-name" placeholder="e.g. Contractor rate with new client" style="margin-top:0" autocomplete="off"/>
     </div>` : '';
 
+  const styleRows = Object.entries(NEGOTIATION_STYLES).map(([id, style]) => `
+    <button class="style-chip ${id === currentNegotiationStyle ? 'active' : ''}" type="button" data-style="${id}">
+      <span class="style-chip-title">${style.label}</span>
+      <span class="style-chip-sub">${style.sub}</span>
+    </button>`).join('');
+
   const anchorRows = sc.anchors.map((a, i) => `
     <div class="anchor-row">
       <div class="anchor-badge ${i===0?'hi':''}">${a.l}</div>
@@ -716,6 +746,11 @@ function buildPrep() {
     </div>`).join('');
 
   wrap.innerHTML = customRow + `
+    <div class="info-card">
+      <div class="info-card-label">Negotiation style</div>
+      <div class="style-chip-grid" id="styleChipGrid">${styleRows}</div>
+      <div class="info-hint" id="styleHint">${NEGOTIATION_STYLES[currentNegotiationStyle].guidance}</div>
+    </div>
     <div class="info-card">
       <div class="info-card-label">Anchors</div>
       ${anchorRows}
@@ -755,6 +790,15 @@ function buildPrep() {
     ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
     ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
   });
+  wrap.querySelectorAll('.style-chip').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentNegotiationStyle = btn.dataset.style || 'composed';
+      wrap.querySelectorAll('.style-chip').forEach(chip => chip.classList.remove('active'));
+      btn.classList.add('active');
+      const hint = document.getElementById('styleHint');
+      if (hint) hint.textContent = NEGOTIATION_STYLES[currentNegotiationStyle].guidance;
+    });
+  });
 }
 
 function getLiveValues() {
@@ -762,7 +806,8 @@ function getLiveValues() {
   const batna = (document.getElementById('batna-field')?.value || '').trim();
   const zopa  = (document.getElementById('zopa-field')?.value  || '').trim();
   const customName = (document.getElementById('custom-name')?.value || '').trim();
-  return { anc, batna, zopa, customName };
+  const styleId = currentNegotiationStyle in NEGOTIATION_STYLES ? currentNegotiationStyle : 'composed';
+  return { anc, batna, zopa, customName, styleId };
 }
 
 function isLocalhost() {
@@ -820,7 +865,7 @@ function getRecognitionErrorMessage(code) {
 }
 
 function getRealtimeCoachContext() {
-  const { anc, batna, zopa, customName } = getLiveValues();
+  const { anc, batna, zopa, customName, styleId } = getLiveValues();
   const sceneName = currentSC.id === 'custom' ? (customName || 'Custom') : currentSC.name;
   return {
     scenarioId: currentSC?.id || 'custom',
@@ -829,6 +874,8 @@ function getRealtimeCoachContext() {
     batna,
     zopa,
     customName,
+    styleId,
+    style: NEGOTIATION_STYLES[styleId] || NEGOTIATION_STYLES.composed,
     hist: sessionHistory.slice(-8).map(h => {
       if (h.r === 'them') return `Other party: ${h.t}`;
       if (h.r === 'you') return `You: ${h.t}`;
@@ -861,7 +908,11 @@ ${prompt.examples.map(example => `  - ${example}`).join('\n')}`;
 
 function buildRealtimeInstructions() {
   const ctx = getRealtimeCoachContext();
-  return `You are a ruthless but practical negotiation coach whispering to the user in real time.
+  return `You are an elite real-time negotiation coach with decades of scar tissue across salary talks, procurement fights, hospital billing calls, landlord disputes, agency retainers, executive comp, and high-pressure commercial deals.
+
+You think like a closer, not a chatbot.
+You know anchoring, leverage, calibrated pressure, silence, trading, conditional concessions, authority constraints, face-saving, and how to move a counterparty without sounding theatrical.
+You coach like someone who has sat through thousands of real negotiations and can hear weakness, drift, over-explaining, and missed leverage instantly.
 
 Return a JSON object with exactly these keys:
 {"tag":"TACTIC","line":"Exactly what they should say verbatim","advice":"One sentence of tactical reasoning"}
@@ -879,11 +930,32 @@ Global rules:
 - no extra keys
 - no filler
 - line should sound like a real person mid-conversation, not a chatbot
+- line must be immediately usable out loud with no editing
+- line should preserve leverage, not just politeness
+- if the user is asked for a number, terms, or position, answer with a concrete position instead of stalling
+- prefer crisp pressure over speeches
+- do not over-explain, justify excessively, or soften the ask into mush
+- do not invent facts, offers, policies, or credentials that are not in context
+- do not escalate emotionally unless the scenario truly calls for it
 - if the other party asks a basic opener like "What are you here for?" or "How can I help?", respond inside the scenario immediately
 - bad line example: "I'm an AI negotiator here to help you."
 - bad line example: "As your coach, I recommend saying..."
 - good line example: "I'm here to talk about reducing this bill before it goes any further."
 - good line example: "I'm at $148,000."
+
+Coaching doctrine:
+- Anchor early when appropriate.
+- Trade, do not give.
+- Push for specificity when they are vague.
+- Preserve optionality and pace.
+- Protect the floor.
+- Make the counterparty do work.
+- Never let the user sound desperate, defensive, or over-grateful.
+
+Delivery style:
+- Selected style: ${ctx.style.label}
+- Style guidance: ${ctx.style.guidance}
+- Even in warmer styles, keep the line commercially disciplined.
 
 Negotiation: ${ctx.sceneName}
 High anchor: ${ctx.anc[0] || 'n/a'}
@@ -1149,13 +1221,14 @@ async function generateOpener() {
   if (!genBtn || !box) return;
   genBtn.disabled = true;
   box.innerHTML = `<div class="opener-loading"><div class="opener-spinner"></div><div class="opener-loading-text">Generating your line…</div></div>`;
-  const { anc, batna, customName } = getLiveValues();
+  const { anc, batna, customName, styleId } = getLiveValues();
   const sceneName = currentSC.id === 'custom' ? customName || 'Custom' : currentSC.name;
+  const style = NEGOTIATION_STYLES[styleId] || NEGOTIATION_STYLES.composed;
   try {
     const content = await secureAPICall([
       {
         role: 'system',
-        content: `You are a negotiation coach. Generate the opening line for a negotiation.
+        content: `You are an elite negotiation coach. Generate the opening line for a negotiation.
 
 RULES — follow exactly:
 - Max 15 words. Ideal: 8–12 words.
@@ -1163,6 +1236,7 @@ RULES — follow exactly:
 - NO: "thank you", "I appreciate", "based on my experience", "because", "I was thinking/hoping"
 - NO ranges (e.g. "between X and Y")
 - Sound like a confident human, not a robot
+- Match this style: ${style.label} — ${style.guidance}
 - Return ONLY the line — no quotes, no prefix, no markdown
 
 GOOD: "I'm at $148,000." / "My number is $148,000." / "The rate is $150 an hour." / "We're starting at $50,000."
