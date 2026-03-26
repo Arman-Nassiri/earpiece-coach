@@ -171,6 +171,25 @@ function sanitize(str) {
   return str.replace(/[<>]/g,'').replace(/javascript:/gi,'').replace(/on\w+=/gi,'').trim().slice(0,500);
 }
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderMultilineText(el, text) {
+  if (!el) return;
+  el.textContent = '';
+  const lines = String(text ?? '').split('\n');
+  lines.forEach((line, idx) => {
+    if (idx > 0) el.appendChild(document.createElement('br'));
+    el.appendChild(document.createTextNode(line));
+  });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SECURE API CALL
 // ─────────────────────────────────────────────────────────────────────────────
@@ -559,7 +578,7 @@ function showModal({ title, body, confirmText = 'Confirm', danger = false }) {
   return new Promise(resolve => {
     _modalResolve = resolve;
     document.getElementById('modalTitle').textContent = title;
-    document.getElementById('modalBody').innerHTML = body;
+    document.getElementById('modalBody').textContent = body;
     const btn = document.getElementById('modalConfirm');
     btn.textContent = confirmText;
     btn.className = 'btn-confirm' + (danger ? ' btn-danger' : '');
@@ -625,9 +644,9 @@ function getProviderNote(provider) {
   const p = PROVIDERS[provider];
   if (!p) return '';
   if (provider === 'openai') {
-    return `${p.note} Live mode uses OpenAI Realtime.`;
+    return 'Prep and chat go directly to api.openai.com. OpenAI live mode is proxied through Gibsel Cue to establish Realtime.';
   }
-  return `${p.note} Live mode is still powered by OpenAI Realtime.`;
+  return `${p.note} OpenAI live mode is still proxied through Gibsel Cue to establish Realtime.`;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -743,7 +762,7 @@ function buildPrep() {
   const anchorRows = sc.anchors.map((a, i) => `
     <div class="anchor-row">
       <div class="anchor-badge ${i===0?'hi':''}">${a.l}</div>
-      <input class="anchor-input ${i===0?'hi':''}" id="anc-${i}" value="${a.v}" placeholder="e.g. $150,000"/>
+      <input class="anchor-input ${i===0?'hi':''}" id="anc-${i}" value="${escapeHtml(a.v)}" placeholder="e.g. $150,000"/>
     </div>`).join('');
 
   wrap.innerHTML = customRow + `
@@ -760,14 +779,14 @@ function buildPrep() {
     <div class="info-card">
       <div class="info-card-label">BATNA — Your best alternative</div>
       <div class="editable-wrap">
-        <textarea class="textarea-field" id="batna-field" rows="2" placeholder="What's your best alternative if this deal falls apart?">${sc.batna}</textarea>
+        <textarea class="textarea-field" id="batna-field" rows="2" placeholder="What's your best alternative if this deal falls apart?">${escapeHtml(sc.batna)}</textarea>
       </div>
       <div class="info-hint">Never negotiate without knowing your walkaway.</div>
     </div>
     <div class="info-card">
       <div class="info-card-label">ZOPA — Zone of possible agreement</div>
       <div class="editable-wrap">
-        <textarea class="textarea-field" id="zopa-field" rows="2" placeholder="Estimate their likely range and flexibility.">${sc.zopa}</textarea>
+        <textarea class="textarea-field" id="zopa-field" rows="2" placeholder="Estimate their likely range and flexibility.">${escapeHtml(sc.zopa)}</textarea>
       </div>
     </div>
     <div class="info-card" id="openerCard">
@@ -1278,7 +1297,17 @@ async function generateOpener() {
   const box      = document.getElementById('openerBox');
   if (!genBtn || !box) return;
   genBtn.disabled = true;
-  box.innerHTML = `<div class="opener-loading"><div class="opener-spinner"></div><div class="opener-loading-text">Generating your line…</div></div>`;
+  box.textContent = '';
+  const loading = document.createElement('div');
+  loading.className = 'opener-loading';
+  const spinner = document.createElement('div');
+  spinner.className = 'opener-spinner';
+  const loadingText = document.createElement('div');
+  loadingText.className = 'opener-loading-text';
+  loadingText.textContent = 'Generating your line…';
+  loading.appendChild(spinner);
+  loading.appendChild(loadingText);
+  box.appendChild(loading);
   const { anc, batna, customName, styleId } = getLiveValues();
   const sceneName = currentSC.id === 'custom' ? customName || 'Custom' : currentSC.name;
   const style = NEGOTIATION_STYLES[styleId] || NEGOTIATION_STYLES.composed;
@@ -1308,11 +1337,23 @@ Return only the line.`
       }
     ], 60, false);
     generatedOpener = content.trim().replace(/^["']|["']$/g, '');
-    box.innerHTML = `<div class="opener-text">${generatedOpener}</div><div class="opener-hint">Say this first. Then stop talking.</div>`;
+    box.textContent = '';
+    const openerText = document.createElement('div');
+    openerText.className = 'opener-text';
+    openerText.textContent = generatedOpener;
+    const openerHint = document.createElement('div');
+    openerHint.className = 'opener-hint';
+    openerHint.textContent = 'Say this first. Then stop talking.';
+    box.appendChild(openerText);
+    box.appendChild(openerHint);
     genBtn.style.display = 'none';
     regenBtn.style.display = 'block';
   } catch(err) {
-    box.innerHTML = `<div class="opener-empty">${err.message}</div>`;
+    box.textContent = '';
+    const openerError = document.createElement('div');
+    openerError.className = 'opener-empty';
+    openerError.textContent = err.message;
+    box.appendChild(openerError);
     genBtn.disabled = false;
   }
 }
@@ -1496,7 +1537,18 @@ function startVol(stream) {
 }
 
 function setTx(fin, int) {
-  document.getElementById('tLive').innerHTML = `<span>${fin || ''}</span><span class="t-interim">${int ? ` ${int}` : ''}</span>`;
+  const live = document.getElementById('tLive');
+  if (!live) return;
+  live.textContent = '';
+  const finalSpan = document.createElement('span');
+  finalSpan.textContent = fin || '';
+  live.appendChild(finalSpan);
+  if (int) {
+    const interimSpan = document.createElement('span');
+    interimSpan.className = 't-interim';
+    interimSpan.textContent = ` ${int}`;
+    live.appendChild(interimSpan);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1755,8 +1807,7 @@ function appendChatMsg(role, text) {
   wrap.className = `chat-msg ${role}`;
   const bubble = document.createElement('div');
   bubble.className = 'chat-bubble';
-  // Convert newlines to <br> safely
-  bubble.innerHTML = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+  renderMultilineText(bubble, text);
   wrap.appendChild(bubble);
   msgs.appendChild(wrap);
   msgs.scrollTop = msgs.scrollHeight;
@@ -1887,11 +1938,33 @@ function showChatRedirectBanner(scenarioName) {
   const banner = document.createElement('div');
   banner.className = 'chat-redirect-banner';
   banner.id = 'chatRedirectBanner';
-  banner.innerHTML = `
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M13 8A5 5 0 113 8a5 5 0 0110 0zm-5-2v4m0 0l-1.5-1.5M8 10l1.5-1.5" stroke="#fff" stroke-width="1.5" stroke-linecap="round"/></svg>
-    <span>Prep brief ready: <strong>${scenarioName}</strong></span>
-    <button class="chat-redirect-btn" onclick="launchFromChat()">Go to Prep →</button>
-  `;
+  const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  icon.setAttribute('width', '16');
+  icon.setAttribute('height', '16');
+  icon.setAttribute('viewBox', '0 0 16 16');
+  icon.setAttribute('fill', 'none');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', 'M13 8A5 5 0 113 8a5 5 0 0110 0zm-5-2v4m0 0l-1.5-1.5M8 10l1.5-1.5');
+  path.setAttribute('stroke', '#fff');
+  path.setAttribute('stroke-width', '1.5');
+  path.setAttribute('stroke-linecap', 'round');
+  icon.appendChild(path);
+
+  const text = document.createElement('span');
+  text.append('Prep brief ready: ');
+  const strong = document.createElement('strong');
+  strong.textContent = scenarioName;
+  text.appendChild(strong);
+
+  const button = document.createElement('button');
+  button.className = 'chat-redirect-btn';
+  button.type = 'button';
+  button.textContent = 'Go to Prep →';
+  button.addEventListener('click', launchFromChat);
+
+  banner.appendChild(icon);
+  banner.appendChild(text);
+  banner.appendChild(button);
   chatView.insertBefore(banner, inputArea);
 }
 

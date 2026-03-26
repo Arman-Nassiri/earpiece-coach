@@ -6,8 +6,10 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
 const ROOT = __dirname;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const ALLOW_SERVER_KEY_LIVE = /^(1|true|yes)$/i.test(process.env.ALLOW_SERVER_KEY_LIVE || '');
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe';
+const liveCallWindows = new Map();
 
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -18,8 +20,22 @@ const MIME_TYPES = {
   '.svg': 'image/svg+xml; charset=utf-8'
 };
 
-function sendJson(res, statusCode, payload) {
-  res.writeHead(statusCode, { 'Content-Type': 'application/json; charset=utf-8' });
+function buildSecurityHeaders(extra = {}) {
+  return {
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Permissions-Policy': 'camera=(), geolocation=(), microphone=(self)',
+    ...extra
+  };
+}
+
+function sendJson(res, statusCode, payload, extraHeaders = {}) {
+  res.writeHead(statusCode, buildSecurityHeaders({
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    ...extraHeaders
+  }));
   res.end(JSON.stringify(payload));
 }
 
@@ -43,7 +59,11 @@ async function serveFile(filePath, res) {
   try {
     const data = await fs.promises.readFile(filePath);
     const ext = path.extname(filePath).toLowerCase();
-    res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
+    const isHtml = ext === '.html';
+    res.writeHead(200, buildSecurityHeaders({
+      'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+      'Cache-Control': isHtml ? 'no-store' : 'public, max-age=300'
+    }));
     res.end(data);
   } catch (_) {
     sendJson(res, 404, { error: 'Not found' });
@@ -55,6 +75,33 @@ function resolveStaticPath(urlPath) {
   const relative = cleanPath === '/' ? '/index.html' : cleanPath;
   const normalized = path.normalize(relative).replace(/^(\.\.[/\\])+/, '');
   return path.join(ROOT, normalized);
+}
+
+function getExpectedOrigin(req) {
+  const proto = (req.headers['x-forwarded-proto'] || (HOST === '127.0.0.1' ? 'http' : 'https')).split(',')[0].trim();
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  return host ? `${proto}://${host}` : '';
+}
+
+function isAllowedLiveRequest(req) {
+  const secFetchSite = String(req.headers['sec-fetch-site'] || '').toLowerCase();
+  if (secFetchSite && !['same-origin', 'same-site', 'none'].includes(secFetchSite)) return false;
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return true;
+  return origin === getExpectedOrigin(req);
+}
+
+function consumeLiveRateLimit(req) {
+  const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  const ip = forwardedFor || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  const maxCalls = 12;
+  const recent = (liveCallWindows.get(ip) || []).filter(ts => ts > now - windowMs);
+  if (recent.length >= maxCalls) return false;
+  recent.push(now);
+  liveCallWindows.set(ip, recent);
+  return true;
 }
 
 async function createRealtimeCall(offerSdp, apiKey) {
@@ -101,10 +148,23 @@ async function createRealtimeCall(offerSdp, apiKey) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'POST' && req.url === '/api/live/call') {
+      if (!isAllowedLiveRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site live requests are not allowed.' });
+        return;
+      }
+      if (!consumeLiveRateLimit(req)) {
+        sendJson(res, 429, { error: 'Too many live session attempts. Try again shortly.' });
+        return;
+      }
       const byokHeader = typeof req.headers['x-openai-key'] === 'string' ? req.headers['x-openai-key'].trim() : '';
-      const apiKey = OPENAI_API_KEY || byokHeader;
+      const serverKey = ALLOW_SERVER_KEY_LIVE ? OPENAI_API_KEY : '';
+      const apiKey = byokHeader || serverKey;
       if (!apiKey) {
-        sendJson(res, 503, { error: 'Live mode needs OPENAI_API_KEY on the server or an OpenAI BYOK session in the app.' });
+        sendJson(res, 503, { error: 'Live mode needs an OpenAI BYOK session or an explicitly enabled server key.' });
+        return;
+      }
+      if (byokHeader && !apiKey.startsWith('sk-')) {
+        sendJson(res, 400, { error: 'Invalid OpenAI key format for live mode.' });
         return;
       }
 
@@ -115,7 +175,10 @@ const server = http.createServer(async (req, res) => {
       }
 
       const answerSdp = await createRealtimeCall(offerSdp, apiKey);
-      res.writeHead(200, { 'Content-Type': 'application/sdp; charset=utf-8' });
+      res.writeHead(200, buildSecurityHeaders({
+        'Content-Type': 'application/sdp; charset=utf-8',
+        'Cache-Control': 'no-store'
+      }));
       res.end(answerSdp);
       return;
     }
