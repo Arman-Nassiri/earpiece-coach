@@ -886,7 +886,7 @@ function mapSessionHistoryToPracticeTranscript() {
 }
 
 function getPracticeSessionTranscript(mode = 'text') {
-  return mode === 'voice' ? mapSessionHistoryToPracticeTranscript() : practiceTranscript.slice();
+  return (mode === 'voice' || mode === 'live') ? mapSessionHistoryToPracticeTranscript() : practiceTranscript.slice();
 }
 
 function formatPracticeTranscript(entries) {
@@ -896,6 +896,7 @@ function formatPracticeTranscript(entries) {
 }
 
 function getPracticeReplayHandler() {
+  if (practiceReviewContext?.mode === 'live') return goLive;
   if (practiceReviewContext?.mode === 'voice') return goVoicePractice;
   return goPractice;
 }
@@ -919,15 +920,30 @@ function openPracticeReviewShell(mode) {
   const content = document.getElementById('practiceReviewContent');
 
   if (title) title.textContent = practiceReviewContext.sceneName;
-  if (subtitle) subtitle.textContent = mode === 'voice' ? 'Voice Practice Review' : 'Text Practice Review';
+  if (subtitle) {
+    subtitle.textContent =
+      mode === 'live' ? 'Live Session Review' :
+      mode === 'voice' ? 'Voice Practice Review' :
+      'Text Practice Review';
+  }
   if (verdict) verdict.textContent = 'Analyzing...';
   if (score) score.textContent = '—';
   if (summary) summary.textContent = 'Reading the session and building quick professional feedback.';
-  if (footnote) footnote.textContent = mode === 'voice' ? 'Voice practice review' : 'Text practice review';
+  if (footnote) {
+    footnote.textContent =
+      mode === 'live' ? 'Live coaching review' :
+      mode === 'voice' ? 'Voice practice review' :
+      'Text practice review';
+  }
   if (strengths) strengths.innerHTML = '';
   if (misses) misses.innerHTML = '';
   if (reps) reps.innerHTML = '';
-  if (replay) replay.textContent = mode === 'voice' ? 'Run Voice Again' : 'Run Text Again';
+  if (replay) {
+    replay.textContent =
+      mode === 'live' ? 'Go Live Again' :
+      mode === 'voice' ? 'Run Voice Again' :
+      'Run Text Again';
+  }
   if (loading) loading.style.display = 'flex';
   if (content) content.style.display = 'none';
   go('s-practice-review');
@@ -963,6 +979,7 @@ async function analyzePracticeSession(mode = 'text') {
   if (entries.length < 2) {
     toast('Not enough conversation to analyze yet');
     if (mode === 'voice') go('s-practice');
+    if (mode === 'live') go('s-home');
     return;
   }
 
@@ -1363,6 +1380,10 @@ function goVoicePractice() {
 
 function analyzeTextPractice() {
   analyzePracticeSession('text');
+}
+
+function analyzeLiveSession() {
+  analyzePracticeSession('live');
 }
 
 function endVoicePractice() {
@@ -2174,8 +2195,13 @@ function confirmEnd(btn) {
     () => {
       stopMic();
       earOn = true;
-      // Small delay so inline confirm restores before screen transition
-      setTimeout(() => go('s-home'), 50);
+      const transcript = getPracticeSessionTranscript('live');
+      if (transcript.length < 2) {
+        setTimeout(() => go('s-home'), 50);
+        toast('Live session ended');
+        return;
+      }
+      setTimeout(() => analyzeLiveSession(), 50);
     },
     { yesLabel: 'End', yesClass: 'danger' }
   );
