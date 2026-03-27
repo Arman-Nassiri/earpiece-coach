@@ -633,6 +633,14 @@ document.getElementById('modalOverlay').addEventListener('click', e => {
   if (e.target === document.getElementById('modalOverlay')) closeModal();
 });
 
+function openContact(event) {
+  const ua = navigator.userAgent || '';
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(ua);
+  if (isMobile) return;
+  event.preventDefault();
+  window.open('https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=gibselcue@gmail.com', '_blank', 'noopener');
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // NAVIGATION
 // ─────────────────────────────────────────────────────────────────────────────
