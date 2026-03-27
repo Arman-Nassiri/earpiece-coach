@@ -45,6 +45,7 @@ const RateLimit = (() => {
 // ─────────────────────────────────────────────────────────────────────────────
 const PROVIDERS = {
   openai: {
+    supported: true,
     name: 'OpenAI', placeholder: 'sk-proj-... or sk-...',
     note: 'Key sent directly to api.openai.com — never stored or logged.',
     models: [
@@ -63,6 +64,7 @@ const PROVIDERS = {
     validateKey: key => key.startsWith('sk-') && key.length >= 20
   },
   anthropic: {
+    supported: false,
     name: 'Anthropic', placeholder: 'sk-ant-api03-...',
     note: 'Key sent directly to api.anthropic.com — never stored or logged.',
     models: [
@@ -85,6 +87,7 @@ const PROVIDERS = {
     validateKey: key => key.startsWith('sk-ant-')
   },
   google: {
+    supported: false,
     name: 'Google', placeholder: 'AIzaSy...',
     note: 'Key sent directly to generativelanguage.googleapis.com.',
     models: [
@@ -103,6 +106,7 @@ const PROVIDERS = {
     validateKey: key => key.startsWith('AIza')
   },
   azure: {
+    supported: false,
     name: 'Azure OpenAI', placeholder: '',
     note: 'Endpoint and key sent directly to your Azure resource.',
     models: [
@@ -121,6 +125,7 @@ const PROVIDERS = {
     validateKey: key => key.includes('openai.azure.com') && key.split('|||')[1]?.length >= 10
   },
   meta: {
+    supported: false,
     name: 'Meta', placeholder: 'Your Llama API key',
     note: 'Key sent directly to api.llama.com — never stored or logged.',
     models: [
@@ -200,6 +205,7 @@ async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
   if (!key) throw new Error('No API key — reload and enter your key.');
   const p = PROVIDERS[currentProvider];
   if (!p) throw new Error('Unknown provider.');
+  if (!p.supported) throw new Error(`${p.name} support is coming soon. Use OpenAI for now.`);
   let systemContent = null, userMessages = messages;
   if (messages.length && messages[0].role === 'system') {
     systemContent = messages[0].content;
@@ -235,6 +241,7 @@ async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function verifyKey(key, provider) {
   const p = PROVIDERS[provider];
+  if (!p?.supported) throw new Error(`${p?.name || 'This provider'} support is coming soon. Use OpenAI for now.`);
   if (!p.validateKey(key)) throw new Error('Key format looks wrong for ' + p.name + '.');
   const testMessages = [{ role: 'user', content: 'Reply with the single word: ready' }];
   const endpoint = typeof p.endpoint === 'function' ? p.endpoint(key) : p.endpoint;
@@ -687,10 +694,60 @@ function updateModelSelect(provider) {
 function getProviderNote(provider) {
   const p = PROVIDERS[provider];
   if (!p) return '';
+  if (!p.supported) {
+    return `${p.name} support is coming soon. Use OpenAI for now.`;
+  }
   if (provider === 'openai') {
     return 'Prep and chat go directly to api.openai.com. OpenAI live mode is proxied through Gibsel Cue to establish Realtime.';
   }
   return `${p.note} OpenAI live mode is still proxied through Gibsel Cue to establish Realtime.`;
+}
+
+function isProviderSupported(provider) {
+  return !!PROVIDERS[provider]?.supported;
+}
+
+function syncProviderAccessState(provider) {
+  const p = PROVIDERS[provider];
+  if (!p) return;
+  const supported = isProviderSupported(provider);
+  const isAzure = provider === 'azure';
+  const singleField = document.getElementById('keyFieldSingle');
+  const azureField = document.getElementById('keyFieldAzure');
+  const keyInput = document.getElementById('apiKeyInput');
+  const azureEndpoint = document.getElementById('azureEndpoint');
+  const azureKey = document.getElementById('azureKey');
+  const modelSelect = document.getElementById('modelSelect');
+  const soonNote = document.getElementById('providerSoonNote');
+  const continueBtn = document.getElementById('continueBtn');
+
+  if (singleField) singleField.style.display = isAzure ? 'none' : 'block';
+  if (azureField) azureField.style.display = isAzure ? 'block' : 'none';
+
+  if (keyInput) {
+    keyInput.value = '';
+    keyInput.placeholder = supported ? p.placeholder : `${p.name} support coming soon`;
+    keyInput.disabled = !supported;
+  }
+  if (azureEndpoint) {
+    azureEndpoint.value = '';
+    azureEndpoint.disabled = !supported;
+    if (!supported) azureEndpoint.placeholder = 'Azure support coming soon';
+  }
+  if (azureKey) {
+    azureKey.value = '';
+    azureKey.disabled = !supported;
+    if (!supported) azureKey.placeholder = 'Azure support coming soon';
+  }
+  if (modelSelect) modelSelect.disabled = !supported;
+  if (soonNote) {
+    soonNote.hidden = supported;
+    soonNote.textContent = supported ? '' : `${p.name} support is coming soon. OpenAI is the only provider enabled right now.`;
+  }
+  if (continueBtn) {
+    continueBtn.disabled = !supported;
+    continueBtn.textContent = supported ? 'Verify & Continue' : `${p.name} Coming Soon`;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -700,30 +757,23 @@ function getProviderNote(provider) {
   updateModelSelect('openai');
   document.getElementById('keyNote').textContent = getProviderNote('openai');
   document.querySelectorAll('.ptab').forEach(tab => {
+    tab.classList.toggle('unsupported', !isProviderSupported(tab.dataset.provider));
+    tab.setAttribute('aria-disabled', String(!isProviderSupported(tab.dataset.provider)));
     tab.addEventListener('click', () => {
       document.querySelectorAll('.ptab').forEach(t => t.classList.remove('active'));
       tab.classList.add('active');
       currentProvider = tab.dataset.provider;
-      const p = PROVIDERS[currentProvider];
-      const isAzure = currentProvider === 'azure';
-      document.getElementById('keyFieldSingle').style.display = isAzure ? 'none' : 'block';
-      document.getElementById('keyFieldAzure').style.display  = isAzure ? 'block' : 'none';
-      if (!isAzure) {
-        document.getElementById('apiKeyInput').placeholder = p.placeholder;
-        document.getElementById('apiKeyInput').value = '';
-      } else {
-        document.getElementById('azureEndpoint').value = '';
-        document.getElementById('azureKey').value = '';
-      }
       document.getElementById('keyNote').textContent = getProviderNote(currentProvider);
       document.getElementById('keyVerifyStatus').textContent = '';
       document.getElementById('keyVerifyStatus').className = 'key-verify-status';
       updateModelSelect(currentProvider);
+      syncProviderAccessState(currentProvider);
       if (typeof updateChatFootnote === 'function') updateChatFootnote();
       if (typeof updatePracticeFootnote === 'function') updatePracticeFootnote();
       if (typeof updateVoicePracticeFootnote === 'function') updateVoicePracticeFootnote();
     });
   });
+  syncProviderAccessState('openai');
 })();
 
 function getRawKey() {
@@ -736,14 +786,19 @@ function getRawKey() {
 }
 
 async function submitKey() {
-  const raw = getRawKey();
   const status = document.getElementById('keyVerifyStatus');
   const btn = document.getElementById('continueBtn');
+  const p = PROVIDERS[currentProvider];
+  if (!isProviderSupported(currentProvider)) {
+    status.textContent = `${p?.name || 'This provider'} support is coming soon. Use OpenAI for now.`;
+    status.className = 'key-verify-status spin';
+    return;
+  }
+  const raw = getRawKey();
   if (!raw) {
     status.textContent = currentProvider === 'azure' ? 'Enter both endpoint URL and API key.' : 'Paste your API key above.';
     status.className = 'key-verify-status fail'; return;
   }
-  const p = PROVIDERS[currentProvider];
   if (!p.validateKey(raw)) {
     status.textContent = "That doesn't look like a valid " + p.name + ' key.';
     status.className = 'key-verify-status fail'; return;

@@ -287,7 +287,37 @@ html, body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .ptab.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+.ptab.unsupported {
+  background: var(--bg2);
+  color: var(--text3);
+  border-style: dashed;
+  border-color: var(--border2);
+}
+.ptab.active.unsupported {
+  background: var(--surface);
+  color: var(--text2);
+  border-color: var(--border2);
+}
 .ptab:hover:not(.active) { background: var(--bg2); }
+.field-input:disabled,
+.model-select:disabled {
+  background: var(--bg2);
+  color: var(--text3);
+  border-color: var(--border);
+  cursor: not-allowed;
+  opacity: 1;
+}
+.provider-soon-note {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: var(--rs);
+  border: 1.5px dashed var(--border2);
+  background: var(--bg2);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text2);
+}
+.provider-soon-note[hidden] { display: none; }
 .key-verify-status { margin-top: 14px; font-size: 13px; line-height: 1.5; min-height: 20px; text-align: center; }
 .key-verify-status.ok   { color: var(--green); }
 .key-verify-status.fail { color: var(--live); }
