@@ -498,10 +498,12 @@ let liveResponseBuffer = '';
 let liveCurrentCoach = null;
 let currentNegotiationStyle = 'composed';
 let pendingSpeechTimer = null;
+let negotiationDraft = null;
 let practiceHistory = [];
 let practiceTyping = false;
 let practiceDifficulty = 'balanced';
 let practiceKickoffStarted = false;
+let practiceRequestToken = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
@@ -632,6 +634,9 @@ function openContact(event) {
 // ─────────────────────────────────────────────────────────────────────────────
 function go(id) {
   const cur = document.querySelector('.screen.active');
+  if (cur?.id === 's-practice' && id !== 's-practice') {
+    resetPracticeRequestState();
+  }
   if (cur) {
     cur.classList.add('leaving'); cur.classList.remove('active');
     setTimeout(() => cur.classList.remove('leaving'), 280);
@@ -760,12 +765,97 @@ document.getElementById('azureKey').addEventListener('keydown', e => { if (e.key
 // ─────────────────────────────────────────────────────────────────────────────
 function pickSC(card, sc) {
   document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('selected'));
-  card.classList.add('selected'); currentSC = sc;
+  card.classList.add('selected');
+  currentSC = sc;
+  initializeNegotiationDraft(sc);
 }
 
 function goPrep() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
+  ensureNegotiationDraft();
   generatedOpener = ''; buildPrep(); go('s-prep');
+}
+
+function buildNegotiationDraft(sc = currentSC) {
+  if (!sc) return null;
+  const styleId = currentNegotiationStyle in NEGOTIATION_STYLES ? currentNegotiationStyle : 'composed';
+  const anc = (Array.isArray(sc.anchors) ? sc.anchors : [])
+    .map(anchor => String(anchor?.v || '').trim())
+    .slice(0, 3);
+  while (anc.length < 3) anc.push('');
+  const customName = sc.id === 'custom' && sc.name !== 'Custom' ? sc.name : '';
+  return {
+    scenarioId: sc.id || 'custom',
+    anc,
+    batna: String(sc.batna || '').trim(),
+    zopa: String(sc.zopa || '').trim(),
+    customName: String(customName || '').trim(),
+    styleId
+  };
+}
+
+function setNegotiationDraft(nextDraft) {
+  if (!nextDraft) {
+    negotiationDraft = null;
+    return null;
+  }
+  const anc = Array.isArray(nextDraft.anc) ? nextDraft.anc.map(value => String(value || '').trim()).slice(0, 3) : ['', '', ''];
+  while (anc.length < 3) anc.push('');
+  const styleId = nextDraft.styleId in NEGOTIATION_STYLES ? nextDraft.styleId : 'composed';
+  negotiationDraft = {
+    scenarioId: nextDraft.scenarioId || currentSC?.id || 'custom',
+    anc,
+    batna: String(nextDraft.batna || '').trim(),
+    zopa: String(nextDraft.zopa || '').trim(),
+    customName: String(nextDraft.customName || '').trim(),
+    styleId
+  };
+  currentNegotiationStyle = styleId;
+  return negotiationDraft;
+}
+
+function initializeNegotiationDraft(sc = currentSC, overrides = {}) {
+  const base = buildNegotiationDraft(sc);
+  if (!base) return setNegotiationDraft(null);
+  const nextDraft = {
+    ...base,
+    ...overrides,
+    anc: Array.isArray(overrides.anc) ? overrides.anc : base.anc
+  };
+  return setNegotiationDraft(nextDraft);
+}
+
+function ensureNegotiationDraft() {
+  if (!negotiationDraft && currentSC) initializeNegotiationDraft(currentSC);
+  return negotiationDraft;
+}
+
+function updateNegotiationDraft(patch = {}) {
+  const draft = ensureNegotiationDraft();
+  if (!draft) return null;
+  return setNegotiationDraft({
+    ...draft,
+    ...patch,
+    anc: Array.isArray(patch.anc) ? patch.anc : draft.anc
+  });
+}
+
+function getScenarioSceneName() {
+  const values = getLiveValues();
+  if (!currentSC) return 'Custom';
+  if (currentSC.id === 'custom') {
+    return values.customName || currentSC.name || 'Custom';
+  }
+  return currentSC.name;
+}
+
+function resetPracticeRequestState() {
+  practiceRequestToken++;
+  practiceTyping = false;
+  practiceKickoffStarted = false;
+  removePracticeTyping();
+  const btn = document.getElementById('practiceSendBtn');
+  if (btn) btn.disabled = false;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -787,13 +877,17 @@ function renderPracticeDifficultyChips() {
   });
 }
 
-function setPracticeStatus(text) {
+function setPracticeStatus(text, state = 'on') {
   const el = document.getElementById('practiceStatus');
   if (el) el.textContent = text;
+  const dot = document.getElementById('practiceStatusDot');
+  if (dot) {
+    dot.className = 's-dot' + (state === 'on' ? ' on' : state === 'spin' ? ' spin' : '');
+  }
 }
 
 function setPracticeTitles() {
-  const sceneName = currentSC ? currentSC.name : 'Practice';
+  const sceneName = getScenarioSceneName();
   const mobile = document.getElementById('practiceTitle');
   const desktop = document.getElementById('practiceTitleSidebar');
   if (mobile) mobile.textContent = sceneName;
@@ -839,9 +933,7 @@ function removePracticeTyping() {
 }
 
 function getPracticeSceneName() {
-  const { customName } = getLiveValues();
-  if (!currentSC) return 'Custom';
-  return currentSC.id === 'custom' ? (customName || 'Custom') : currentSC.name;
+  return getScenarioSceneName();
 }
 
 function getPracticePrompt() {
@@ -888,13 +980,16 @@ function updatePracticeFootnote() {
 }
 
 function resetPractice(startOver = false) {
+  resetPracticeRequestState();
   practiceHistory = [];
-  practiceTyping = false;
-  practiceKickoffStarted = false;
   const msgs = document.getElementById('practiceMessages');
   if (msgs) msgs.innerHTML = '';
-  removePracticeTyping();
-  setPracticeStatus('Ready when you are. You can start or let them start.');
+  const inp = document.getElementById('practiceInput');
+  if (inp) {
+    inp.value = '';
+    inp.style.height = 'auto';
+  }
+  setPracticeStatus('Ready when you are. You can start or let them start.', 'on');
   setPracticeTitles();
   renderPracticeDifficultyChips();
   if (startOver) {
@@ -905,20 +1000,23 @@ function resetPractice(startOver = false) {
 async function kickoffPractice() {
   if (practiceKickoffStarted) return;
   practiceKickoffStarted = true;
-  setPracticeStatus('Spinning up the counterparty...');
+  const requestToken = practiceRequestToken;
+  setPracticeStatus('Spinning up the counterparty...', 'spin');
   showPracticeTyping();
   try {
     const reply = await secureAPICall([
       { role: 'system', content: getPracticePrompt() },
       { role: 'user', content: 'Give a single realistic opening line the counterparty would say to begin this negotiation. One sentence.' }
     ], 160, false);
+    if (requestToken !== practiceRequestToken) return;
     removePracticeTyping();
     appendPracticeMsg('ai', reply);
     practiceHistory.push({ role: 'assistant', content: reply });
-    setPracticeStatus('Respond with your opener. Keep it sharp.');
+    setPracticeStatus('Respond with your opener. Keep it sharp.', 'on');
   } catch(err) {
+    if (requestToken !== practiceRequestToken) return;
     removePracticeTyping();
-    setPracticeStatus('Open with your line to start practice.');
+    setPracticeStatus('Open with your line to start practice.', 'idle');
     toast(err.message || 'Could not start practice.');
   }
 }
@@ -933,19 +1031,24 @@ async function practiceSend() {
   practiceHistory.push({ role: 'user', content: text });
   practiceTyping = true;
   document.getElementById('practiceSendBtn').disabled = true;
+  const requestToken = practiceRequestToken;
+  setPracticeStatus('Counterparty is responding...', 'spin');
   showPracticeTyping();
   try {
     const messages = [{ role: 'system', content: getPracticePrompt() }, ...practiceHistory];
     const reply = await secureAPICall(messages, 320, false);
+    if (requestToken !== practiceRequestToken) return;
     removePracticeTyping();
     appendPracticeMsg('ai', reply);
     practiceHistory.push({ role: 'assistant', content: reply });
-    setPracticeStatus('Keep it moving — short, specific turns.');
+    setPracticeStatus('Keep it moving — short, specific turns.', 'on');
   } catch(err) {
+    if (requestToken !== practiceRequestToken) return;
     removePracticeTyping();
     appendPracticeMsg('ai', `Practice error: ${err.message}`);
-    setPracticeStatus('Try again after fixing the issue.');
+    setPracticeStatus('Try again after fixing the issue.', 'idle');
   }
+  if (requestToken !== practiceRequestToken) return;
   practiceTyping = false;
   document.getElementById('practiceSendBtn').disabled = false;
   inp.focus();
@@ -953,6 +1056,15 @@ async function practiceSend() {
 
 function goPractice() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
+  ensureNegotiationDraft();
+  const values = getLiveValues();
+  if (currentSC.id === 'custom' && !values.customName && !values.anc.some(Boolean) && !values.batna && !values.zopa) {
+    toast('Fill in your custom scenario first');
+    generatedOpener = '';
+    buildPrep();
+    go('s-prep');
+    return;
+  }
   setPracticeTitles();
   updatePracticeFootnote();
   setPracticeDifficulty(practiceDifficulty);
@@ -965,20 +1077,21 @@ function goPractice() {
 // PREP SCREEN
 // ─────────────────────────────────────────────────────────────────────────────
 function buildPrep() {
+  const values = ensureNegotiationDraft() || initializeNegotiationDraft(currentSC);
   const sc = currentSC;
-  document.getElementById('prepTitle').textContent = sc.name;
+  document.getElementById('prepTitle').textContent = getScenarioSceneName();
   const sidebarTitle = document.getElementById('prepTitleSidebar');
-  if (sidebarTitle) sidebarTitle.textContent = sc.name;
+  if (sidebarTitle) sidebarTitle.textContent = getScenarioSceneName();
   const wrap = document.getElementById('prepScroll');
 
   const customRow = sc.id === 'custom' ? `
     <div class="info-card">
       <div class="info-card-label">What are you negotiating?</div>
-      <input class="field-input" id="custom-name" placeholder="e.g. Contractor rate with new client" style="margin-top:0" autocomplete="off"/>
+      <input class="field-input" id="custom-name" value="${escapeHtml(values?.customName || '')}" placeholder="e.g. Contractor rate with new client" style="margin-top:0" autocomplete="off"/>
     </div>` : '';
 
   const styleRows = Object.entries(NEGOTIATION_STYLES).map(([id, style]) => `
-    <button class="style-chip ${id === currentNegotiationStyle ? 'active' : ''}" type="button" data-style="${id}">
+    <button class="style-chip ${id === values?.styleId ? 'active' : ''}" type="button" data-style="${id}">
       <span class="style-chip-title">${style.label}</span>
       <span class="style-chip-sub">${style.sub}</span>
     </button>`).join('');
@@ -986,14 +1099,14 @@ function buildPrep() {
   const anchorRows = sc.anchors.map((a, i) => `
     <div class="anchor-row">
       <div class="anchor-badge ${i===0?'hi':''}">${a.l}</div>
-      <input class="anchor-input ${i===0?'hi':''}" id="anc-${i}" value="${escapeHtml(a.v)}" placeholder="e.g. $150,000"/>
+      <input class="anchor-input ${i===0?'hi':''}" id="anc-${i}" value="${escapeHtml(values?.anc?.[i] || '')}" placeholder="e.g. $150,000"/>
     </div>`).join('');
 
   wrap.innerHTML = customRow + `
     <div class="info-card">
       <div class="info-card-label">Negotiation style</div>
       <div class="style-chip-grid" id="styleChipGrid">${styleRows}</div>
-      <div class="info-hint" id="styleHint">${NEGOTIATION_STYLES[currentNegotiationStyle].guidance}</div>
+      <div class="info-hint" id="styleHint">${NEGOTIATION_STYLES[values?.styleId || 'composed'].guidance}</div>
     </div>
     <div class="info-card">
       <div class="info-card-label">Anchors</div>
@@ -1003,14 +1116,14 @@ function buildPrep() {
     <div class="info-card">
       <div class="info-card-label">BATNA — Your best alternative</div>
       <div class="editable-wrap">
-        <textarea class="textarea-field" id="batna-field" rows="2" placeholder="What's your best alternative if this deal falls apart?">${escapeHtml(sc.batna)}</textarea>
+        <textarea class="textarea-field" id="batna-field" rows="2" placeholder="What's your best alternative if this deal falls apart?">${escapeHtml(values?.batna || '')}</textarea>
       </div>
       <div class="info-hint">Never negotiate without knowing your walkaway.</div>
     </div>
     <div class="info-card">
       <div class="info-card-label">ZOPA — Zone of possible agreement</div>
       <div class="editable-wrap">
-        <textarea class="textarea-field" id="zopa-field" rows="2" placeholder="Estimate their likely range and flexibility.">${escapeHtml(sc.zopa)}</textarea>
+        <textarea class="textarea-field" id="zopa-field" rows="2" placeholder="Estimate their likely range and flexibility.">${escapeHtml(values?.zopa || '')}</textarea>
       </div>
     </div>
     <div class="info-card" id="openerCard">
@@ -1032,26 +1145,53 @@ function buildPrep() {
 
   wrap.querySelectorAll('.textarea-field').forEach(ta => {
     ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
-    ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; });
+    ta.addEventListener('input', () => {
+      ta.style.height = 'auto';
+      ta.style.height = ta.scrollHeight + 'px';
+      if (ta.id === 'batna-field') updateNegotiationDraft({ batna: ta.value });
+      if (ta.id === 'zopa-field') updateNegotiationDraft({ zopa: ta.value });
+    });
   });
+  wrap.querySelectorAll('.anchor-input').forEach((input, idx) => {
+    input.addEventListener('input', () => {
+      const nextAnc = getLiveValues().anc;
+      nextAnc[idx] = input.value;
+      updateNegotiationDraft({ anc: nextAnc });
+    });
+  });
+  const customNameInput = document.getElementById('custom-name');
+  if (customNameInput) {
+    customNameInput.addEventListener('input', () => {
+      updateNegotiationDraft({ customName: customNameInput.value });
+      document.getElementById('prepTitle').textContent = getScenarioSceneName();
+      const sidebarTitleEl = document.getElementById('prepTitleSidebar');
+      if (sidebarTitleEl) sidebarTitleEl.textContent = getScenarioSceneName();
+    });
+  }
   wrap.querySelectorAll('.style-chip').forEach(btn => {
     btn.addEventListener('click', () => {
-      currentNegotiationStyle = btn.dataset.style || 'composed';
+      const nextStyle = btn.dataset.style || 'composed';
+      updateNegotiationDraft({ styleId: nextStyle });
       wrap.querySelectorAll('.style-chip').forEach(chip => chip.classList.remove('active'));
       btn.classList.add('active');
       const hint = document.getElementById('styleHint');
-      if (hint) hint.textContent = NEGOTIATION_STYLES[currentNegotiationStyle].guidance;
+      if (hint) hint.textContent = NEGOTIATION_STYLES[nextStyle].guidance;
     });
   });
 }
 
 function getLiveValues() {
-  const anc = [0,1,2].map(i => { const el = document.getElementById('anc-'+i); return el ? el.value.trim() : ''; });
-  const batna = (document.getElementById('batna-field')?.value || '').trim();
-  const zopa  = (document.getElementById('zopa-field')?.value  || '').trim();
-  const customName = (document.getElementById('custom-name')?.value || '').trim();
-  const styleId = currentNegotiationStyle in NEGOTIATION_STYLES ? currentNegotiationStyle : 'composed';
-  return { anc, batna, zopa, customName, styleId };
+  const values = ensureNegotiationDraft();
+  const anc = values?.anc ? values.anc.slice(0, 3) : ['', '', ''];
+  while (anc.length < 3) anc.push('');
+  const styleId = values?.styleId in NEGOTIATION_STYLES ? values.styleId : 'composed';
+  return {
+    anc,
+    batna: values?.batna || '',
+    zopa: values?.zopa || '',
+    customName: values?.customName || '',
+    styleId
+  };
 }
 
 function isLocalhost() {
@@ -1110,7 +1250,7 @@ function getRecognitionErrorMessage(code) {
 
 function getRealtimeCoachContext() {
   const { anc, batna, zopa, customName, styleId } = getLiveValues();
-  const sceneName = currentSC.id === 'custom' ? (customName || 'Custom') : currentSC.name;
+  const sceneName = currentSC?.id === 'custom' ? (customName || currentSC?.name || 'Custom') : (currentSC?.name || 'Custom');
   return {
     scenarioId: currentSC?.id || 'custom',
     sceneName,
@@ -1533,7 +1673,7 @@ async function generateOpener() {
   loading.appendChild(loadingText);
   box.appendChild(loading);
   const { anc, batna, customName, styleId } = getLiveValues();
-  const sceneName = currentSC.id === 'custom' ? customName || 'Custom' : currentSC.name;
+  const sceneName = currentSC?.id === 'custom' ? (customName || currentSC?.name || 'Custom') : (currentSC?.name || 'Custom');
   const style = NEGOTIATION_STYLES[styleId] || NEGOTIATION_STYLES.composed;
   try {
     const content = await secureAPICall([
@@ -1596,7 +1736,7 @@ function goLive() {
   stopMic();
   resetLive();
   const { customName } = getLiveValues();
-  const sceneName = currentSC.id === 'custom' ? (customName || 'Custom') : currentSC.name;
+  const sceneName = currentSC?.id === 'custom' ? (customName || currentSC?.name || 'Custom') : (currentSC?.name || 'Custom');
   document.getElementById('liveScene').textContent = sceneName;
   const sidebarScene = document.getElementById('liveSceneSidebar');
   if (sidebarScene) sidebarScene.textContent = sceneName;
@@ -2145,6 +2285,12 @@ function triggerScenarioFill(fill) {
     ...(fill.id === 'custom' ? { name: fill.customName || 'Custom' } : {})
   };
   currentSC = filled;
+  initializeNegotiationDraft(filled, {
+    anc: (fill.anchors || sc.anchors || []).map(anchor => anchor?.v || ''),
+    batna: fill.batna || sc.batna || '',
+    zopa: fill.zopa || sc.zopa || '',
+    customName: fill.id === 'custom' ? (fill.customName || '') : ''
+  });
   // Highlight the card in the list if it exists
   document.querySelectorAll('.scenario-card').forEach((card, i) => {
     card.classList.toggle('selected', LIBRARY[i]?.id === filled.id);
@@ -2194,6 +2340,7 @@ function showChatRedirectBanner(scenarioName) {
 
 function launchFromChat() {
   if (!currentSC) return;
+  ensureNegotiationDraft();
   generatedOpener = '';
   buildPrep();
   go('s-prep');

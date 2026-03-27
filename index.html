@@ -176,34 +176,56 @@
 
 <!-- S-PRACTICE -->
 <div class="screen" id="s-practice">
-  <!-- Desktop sidebar -->
   <div class="practice-sidebar">
-    <button class="nav-back" onclick="go('s-home')" style="margin-bottom:24px;align-self:flex-start;">&#8592;</button>
-    <div class="nav-title" id="practiceTitleSidebar">—</div>
-    <div class="nav-chip" style="margin-top:8px;align-self:flex-start;">Practice</div>
-    <div class="practice-difficulty" id="practiceDifficultySidebar"></div>
-    <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us" style="margin-top:auto;">Contact</a>
-  </div>
-
-  <!-- Mobile nav -->
-  <div class="nav-bar" id="practiceNav">
-    <button class="nav-back" onclick="go('s-home')">&#8592;</button>
-    <div class="nav-title" id="practiceTitle">—</div>
-    <div class="nav-chip">Practice</div>
-    <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
-  </div>
-
-  <div class="practice-main">
-    <div class="practice-top">
-      <div class="practice-label">Difficulty</div>
-      <div class="practice-difficulty" id="practiceDifficultyChips"></div>
-      <button class="practice-reset" onclick="resetPractice(true)">&#8635; Start over</button>
+    <button class="nav-back" onclick="go('s-home')" style="align-self:flex-start;">&#8592;</button>
+    <div class="live-pill practice-pill">
+      <div class="live-dot"></div>
+      <div class="live-pill-text">Practice</div>
     </div>
-    <div class="practice-hint" id="practiceHint">The AI plays your counterparty. Keep it tight and negotiate.</div>
+    <div class="live-scene-name" id="practiceTitleSidebar">—</div>
+    <div class="practice-sidebar-section">
+      <div class="practice-label">Difficulty</div>
+      <div class="practice-difficulty practice-difficulty-sidebar" id="practiceDifficultySidebar"></div>
+    </div>
+    <button class="end-btn practice-reset-btn" onclick="resetPractice(true)">Start over</button>
+    <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us" style="width:fit-content;">Contact</a>
+  </div>
 
-    <div class="practice-view">
-      <div class="practice-status" id="practiceStatus">Ready when you are. You can start or let them start.</div>
+  <div class="practice-nav" id="practiceNav">
+    <button class="nav-back" onclick="go('s-home')">&#8592;</button>
+    <div class="practice-nav-copy">
+      <div class="live-pill practice-pill">
+        <div class="live-dot"></div>
+        <div class="live-pill-text">Practice</div>
+      </div>
+      <div class="live-scene-name" id="practiceTitle">—</div>
+    </div>
+    <button class="end-btn practice-reset-mini" onclick="resetPractice(true)">Reset</button>
+  </div>
+
+  <div class="practice-body">
+    <div class="status-bar practice-status-bar">
+      <div class="s-dot on" id="practiceStatusDot"></div>
+      <div class="s-text" id="practiceStatus">Ready when you are. You can start or let them start.</div>
+    </div>
+
+    <div class="practice-control-card">
+      <div class="practice-control-top">
+        <div class="practice-control-copy">
+          <div class="practice-label">Difficulty</div>
+          <div class="practice-hint" id="practiceHint">The AI plays your counterparty. Keep it tight and negotiate.</div>
+        </div>
+        <a class="icon-btn contact-btn practice-contact-mobile" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
+      </div>
+      <div class="practice-difficulty" id="practiceDifficultyChips"></div>
+    </div>
+
+    <div class="practice-thread-card">
+      <div class="t-label">Counterparty</div>
       <div class="practice-messages" id="practiceMessages"></div>
+    </div>
+
+    <div class="practice-compose-card">
       <div class="practice-input-area">
         <div class="practice-input-row">
           <textarea class="practice-textarea" id="practiceInput" placeholder="Say your line…" rows="1" spellcheck="false"></textarea>
