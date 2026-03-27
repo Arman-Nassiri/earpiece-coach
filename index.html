@@ -205,6 +205,14 @@
     </div>
 
     <div class="practice-control-card">
+      <div class="practice-mode-row">
+        <div class="practice-label">Mode</div>
+        <div class="practice-mode-tabs">
+          <button class="practice-mode-tab active" type="button" aria-current="page">Text Practice</button>
+          <button class="practice-mode-tab" type="button" onclick="goVoicePractice()">Voice Conversation</button>
+          <button class="practice-mode-tab" type="button" onclick="analyzeTextPractice()">Analyze Round</button>
+        </div>
+      </div>
       <div class="practice-control-top">
         <div class="practice-control-copy">
           <div class="practice-label">Difficulty</div>
@@ -213,10 +221,6 @@
         <a class="icon-btn contact-btn practice-contact-mobile" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       </div>
       <div class="practice-difficulty" id="practiceDifficultyChips"></div>
-      <div class="practice-action-row">
-        <button class="btn" onclick="goVoicePractice()">Voice Conversation</button>
-        <button class="btn ghost" onclick="analyzeTextPractice()">Analyze This Round</button>
-      </div>
     </div>
 
     <div class="practice-thread-card">
@@ -269,6 +273,14 @@
 
   <div class="practice-voice-body">
     <div class="practice-voice-hero">
+      <div class="practice-mode-row">
+        <div class="practice-label">Mode</div>
+        <div class="practice-mode-tabs">
+          <button class="practice-mode-tab" type="button" onclick="goPractice()">Text Practice</button>
+          <button class="practice-mode-tab active" type="button" aria-current="page">Voice Conversation</button>
+          <button class="practice-mode-tab" type="button" onclick="analyzePracticeSession('voice')">Analyze Round</button>
+        </div>
+      </div>
       <div class="t-label">Counterparty</div>
       <div class="practice-voice-headline" id="practiceVoiceHeadline">Speak naturally. The counterparty will answer in real time.</div>
       <div class="practice-voice-sub">Use headphones for the cleanest loop on phone. Text practice is still available if you want manual control.</div>

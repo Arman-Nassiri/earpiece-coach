@@ -966,6 +966,47 @@ html, body {
 @media (min-width: 768px) {
   .practice-contact-mobile { display: none; }
 }
+.practice-mode-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.practice-mode-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.practice-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1.5px solid var(--border);
+  background: var(--bg2);
+  color: var(--text2);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.1s;
+}
+.practice-mode-tab:hover {
+  background: var(--surface);
+  border-color: var(--border2);
+}
+.practice-mode-tab:active {
+  transform: scale(0.98);
+}
+.practice-mode-tab.active {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+  cursor: default;
+}
 .practice-action-row {
   display: flex;
   gap: 10px;
@@ -1104,6 +1145,13 @@ html, body {
     padding-left: 14px;
     padding-right: 14px;
   }
+  .practice-mode-tabs {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .practice-mode-tab {
+    width: 100%;
+  }
   .practice-action-row {
     flex-direction: column;
   }
@@ -1181,6 +1229,9 @@ html, body {
   border-radius: var(--r);
   padding: 20px 18px 18px;
   flex-shrink: 0;
+}
+.practice-voice-hero .practice-mode-row {
+  margin-bottom: 18px;
 }
 .practice-voice-headline {
   font-family: 'Instrument Serif', serif;
