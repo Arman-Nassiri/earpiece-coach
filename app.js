@@ -1090,6 +1090,26 @@ function setPracticeDifficulty(id) {
   refreshRealtimeSession();
 }
 
+function isMobileAppViewport() {
+  return window.matchMedia('(max-width: 767px)').matches;
+}
+
+function scrollMobileConversationViewport(node) {
+  if (!node) return;
+  const target = isMobileAppViewport()
+    ? node.closest('.practice-body, .practice-voice-body, .live-body') || node
+    : node;
+  requestAnimationFrame(() => {
+    target.scrollTop = target.scrollHeight;
+  });
+}
+
+function resetMobileConversationViewport(selector) {
+  if (!isMobileAppViewport()) return;
+  const target = document.querySelector(selector);
+  if (target) target.scrollTop = 0;
+}
+
 function appendPracticeMsg(role, text) {
   const msgs = document.getElementById('practiceMessages');
   if (!msgs) return;
@@ -1100,7 +1120,7 @@ function appendPracticeMsg(role, text) {
   renderMultilineText(bubble, text);
   wrap.appendChild(bubble);
   msgs.appendChild(wrap);
-  msgs.scrollTop = msgs.scrollHeight;
+  scrollMobileConversationViewport(msgs);
   return wrap;
 }
 
@@ -1112,7 +1132,8 @@ function showPracticeTyping() {
   for (let i = 0; i < 3; i++) {
     const d = document.createElement('div'); d.className = 'practice-typing-dot'; el.appendChild(d);
   }
-  msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
+  msgs.appendChild(el);
+  scrollMobileConversationViewport(msgs);
 }
 
 function removePracticeTyping() {
@@ -1171,6 +1192,7 @@ function resetPractice(startOver = false) {
   resetPracticeRequestState();
   practiceHistory = [];
   practiceTranscript = [];
+  resetMobileConversationViewport('#s-practice .practice-body');
   const msgs = document.getElementById('practiceMessages');
   if (msgs) msgs.innerHTML = '';
   const inp = document.getElementById('practiceInput');
@@ -1290,7 +1312,7 @@ function appendVoicePracticeMsg(role, text) {
   renderMultilineText(bubble, text);
   wrap.appendChild(bubble);
   msgs.appendChild(wrap);
-  msgs.scrollTop = msgs.scrollHeight;
+  scrollMobileConversationViewport(msgs);
 }
 
 function setVoicePracticeHeadline(text = 'Waiting for the counterparty to speak.') {
@@ -1311,6 +1333,7 @@ function resetVoicePractice() {
   liveLastAssistantLine = '';
   liveLastAssistantAt = 0;
   resetLiveRealtimeState();
+  resetMobileConversationViewport('#s-practice-voice .practice-voice-body');
   const history = document.getElementById('practiceVoiceHistory');
   if (history) history.innerHTML = '';
   setVoicePracticeHeadline('Speak naturally. The counterparty will answer in real time.');

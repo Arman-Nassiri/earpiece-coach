@@ -1606,6 +1606,11 @@ html, body {
 @keyframes twBlink { 0%,100%{opacity:1} 50%{opacity:0} }
 
 @media (max-width: 767px) {
+  #s-practice,
+  #s-practice-voice,
+  #s-live {
+    overflow: hidden;
+  }
   .home-sidebar {
     padding: calc(var(--top-safe-gap) - 10px) 18px 0;
   }
@@ -1628,7 +1633,9 @@ html, body {
     padding-right: 14px;
   }
   .nav-bar,
-  .live-nav {
+  .live-nav,
+  .practice-nav,
+  .practice-voice-nav {
     padding-left: 14px;
     padding-right: 14px;
     gap: 8px;
@@ -1659,7 +1666,7 @@ html, body {
   }
   .chat-msg,
   .practice-msg {
-    max-width: 90%;
+    max-width: 100%;
   }
   .practice-body,
   .practice-voice-body,
@@ -1667,13 +1674,61 @@ html, body {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior-y: contain;
-    padding: 12px 14px calc(24px + var(--sab));
+    padding: 12px 14px calc(20px + var(--sab));
     gap: 12px;
   }
-  .practice-status-bar {
-    position: sticky;
-    top: 0;
-    z-index: 4;
+  .practice-nav,
+  .practice-voice-nav {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: start;
+  }
+  .practice-nav-copy,
+  .practice-voice-nav-copy {
+    min-width: 0;
+  }
+  .practice-nav-copy .live-scene-name,
+  .practice-voice-nav-copy .live-scene-name,
+  .live-nav .live-scene-name {
+    white-space: normal;
+    overflow: hidden;
+    text-overflow: clip;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.35;
+  }
+  .live-nav {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    align-items: start;
+    row-gap: 10px;
+  }
+  .live-nav .live-pill {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .live-nav .live-scene-name {
+    grid-column: 2 / 5;
+    grid-row: 1;
+    align-self: center;
+  }
+  .live-nav .contact-btn {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: start;
+  }
+  .live-nav .ear-toggle-nav {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+  }
+  .live-nav .end-btn {
+    grid-column: 4;
+    grid-row: 2;
+    justify-self: end;
+    padding-left: 14px;
+    padding-right: 14px;
   }
   .practice-control-card,
   .practice-thread-card,
@@ -1685,51 +1740,49 @@ html, body {
   .status-bar {
     flex: 0 0 auto;
   }
+  .practice-control-card,
+  .practice-thread-card,
+  .practice-compose-card,
+  .practice-voice-hero,
+  .practice-voice-log,
+  .coaching-card,
+  .transcript-section {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
   .practice-thread-card,
   .practice-voice-log,
   .transcript-section {
-    min-height: clamp(240px, 38svh, 360px);
+    min-height: 0;
+    overflow: visible;
   }
   .practice-messages,
   .t-scroll {
-    max-height: min(42svh, 420px);
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
+    flex: 0 0 auto;
+    max-height: none;
+    overflow: visible;
   }
   .practice-compose-card {
-    position: sticky;
-    bottom: 0;
-    z-index: 4;
-    background: var(--surface);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 -10px 28px rgba(0,0,0,0.06);
+    position: static;
+    padding-top: 14px;
+    padding-bottom: 14px;
   }
   .practice-voice-hero .practice-action-row {
-    flex-direction: row;
+    flex-direction: column;
     align-items: stretch;
   }
   .practice-voice-hero .practice-action-row .btn,
   .practice-voice-hero .practice-action-row .btn-ear {
     flex: 1;
   }
+  .practice-status-bar,
   .status-bar {
-    position: sticky;
-    bottom: 0;
-    z-index: 3;
+    position: static;
+    z-index: auto;
     background: var(--surface);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 -10px 28px rgba(0,0,0,0.06);
-  }
-  .live-nav {
-    align-items: flex-start;
-  }
-  .live-scene-name {
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    box-shadow: none;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
   .coaching-card {
     padding: 18px 16px;
@@ -1750,13 +1803,23 @@ html, body {
     border: 1.5px solid var(--border);
     border-radius: var(--r);
     padding: 16px 14px;
-    overflow: hidden;
+    overflow: visible;
   }
   .t-label {
     margin-bottom: 10px;
   }
   .t-scroll {
-    padding-right: 2px;
+    padding-right: 0;
+  }
+  .status-bar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .s-text {
+    min-width: 0;
+  }
+  .vol-row {
+    margin-left: auto;
   }
 }
 
