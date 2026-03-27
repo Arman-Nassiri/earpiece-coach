@@ -10,6 +10,7 @@ const ALLOW_SERVER_KEY_LIVE = /^(1|true|yes)$/i.test(process.env.ALLOW_SERVER_KE
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe';
 const liveCallWindows = new Map();
+const ALLOWED_REALTIME_MODELS = new Set(['gpt-realtime', 'gpt-realtime-mini']);
 
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -104,12 +105,12 @@ function consumeLiveRateLimit(req) {
   return true;
 }
 
-async function createRealtimeCall(offerSdp, apiKey) {
+async function createRealtimeCall(offerSdp, apiKey, realtimeModel = REALTIME_MODEL) {
   const form = new FormData();
   form.set('sdp', offerSdp);
   form.set('session', JSON.stringify({
     type: 'realtime',
-    model: REALTIME_MODEL,
+    model: realtimeModel,
     audio: {
       input: {
         transcription: {
@@ -157,6 +158,9 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       const byokHeader = typeof req.headers['x-openai-key'] === 'string' ? req.headers['x-openai-key'].trim() : '';
+      const requestedRealtimeModel = typeof req.headers['x-openai-realtime-model'] === 'string'
+        ? req.headers['x-openai-realtime-model'].trim()
+        : '';
       const serverKey = ALLOW_SERVER_KEY_LIVE ? OPENAI_API_KEY : '';
       const apiKey = byokHeader || serverKey;
       if (!apiKey) {
@@ -174,7 +178,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      const answerSdp = await createRealtimeCall(offerSdp, apiKey);
+      const realtimeModel = ALLOWED_REALTIME_MODELS.has(requestedRealtimeModel) ? requestedRealtimeModel : REALTIME_MODEL;
+      const answerSdp = await createRealtimeCall(offerSdp, apiKey, realtimeModel);
       res.writeHead(200, buildSecurityHeaders({
         'Content-Type': 'application/sdp; charset=utf-8',
         'Cache-Control': 'no-store'

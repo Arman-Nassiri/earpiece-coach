@@ -49,9 +49,11 @@ const PROVIDERS = {
     name: 'OpenAI', placeholder: 'sk-proj-... or sk-...',
     note: 'Key sent directly to api.openai.com — never stored or logged.',
     models: [
-      { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', badge: 'fastest · cheapest' },
-      { id: 'gpt-4.1',      label: 'GPT-4.1',      badge: 'recommended' },
-      { id: 'gpt-4o',       label: 'GPT-4o',        badge: 'balanced' },
+      { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini', badge: 'best default' },
+      { id: 'gpt-4.1',      label: 'GPT-4.1',      badge: 'best text quality' },
+      { id: 'gpt-4o',       label: 'GPT-4o',       badge: 'premium all-rounder' },
+      { id: 'gpt-4o-mini',  label: 'GPT-4o Mini',  badge: 'budget all-rounder' },
+      { id: 'gpt-4.1-nano', label: 'GPT-4.1 Nano', badge: 'ultra cheap' },
     ],
     endpoint: () => 'https://api.openai.com/v1/chat/completions',
     authHeader: key => ({ 'Authorization': 'Bearer ' + key }),
@@ -517,6 +519,18 @@ let realtimeMode = 'coach';
 let liveLastAssistantLine = '';
 let liveLastAssistantAt = 0;
 let practiceReviewState = null;
+let liveRealtimeModel = 'gpt-realtime';
+
+const REALTIME_MODELS = {
+  'gpt-realtime': {
+    label: 'GPT Realtime',
+    sub: 'best live quality'
+  },
+  'gpt-realtime-mini': {
+    label: 'GPT Realtime Mini',
+    sub: 'cheaper live tier'
+  }
+};
 
 const SESSION_STATE_KEY = 'gc-session-v1';
 const SCREEN_ROUTE_MAP = {
@@ -542,6 +556,10 @@ function getActiveScreenId() {
 
 function getRouteForScreen(screenId) {
   return SCREEN_ROUTE_MAP[screenId] || 'launch';
+}
+
+function getRealtimeModelMeta(modelId = liveRealtimeModel) {
+  return REALTIME_MODELS[modelId] || REALTIME_MODELS['gpt-realtime'];
 }
 
 function getScreenForRoute(hashValue = window.location.hash) {
@@ -620,7 +638,8 @@ function buildSessionSnapshot() {
     chatBot,
     chatMobileHasBot,
     earOn,
-    realtimeMode
+    realtimeMode,
+    liveRealtimeModel
   };
 }
 
@@ -1577,10 +1596,8 @@ function setVoicePracticeTitles() {
 }
 
 function updateVoicePracticeFootnote() {
-  const p = PROVIDERS[currentProvider];
-  const modelLabel = p?.models?.find(m => m.id === currentModel)?.label || currentModel;
   const el = document.getElementById('practiceVoiceFootnote');
-  if (el) el.textContent = `Voice practice · OpenAI Realtime · ${modelLabel}`;
+  if (el) el.textContent = `Voice practice · OpenAI Realtime · ${getRealtimeModelMeta(liveRealtimeModel).label}`;
 }
 
 function appendVoicePracticeMsg(role, text) {
@@ -1742,6 +1759,14 @@ function buildPrep() {
       <div class="info-hint" id="styleHint">${NEGOTIATION_STYLES[values?.styleId || 'composed'].guidance}</div>
     </div>
     <div class="info-card">
+      <div class="info-card-label">Live Realtime Model</div>
+      <div class="model-select-wrap">
+        <select class="model-select" id="liveRealtimeModel"></select>
+        <div class="model-select-arrow">&#8964;</div>
+      </div>
+      <div class="info-hint" id="liveRealtimeModelHint"></div>
+    </div>
+    <div class="info-card">
       <div class="info-card-label">Anchors</div>
       ${anchorRows}
       <div class="info-hint">High anchor goes first — always. State it, then go quiet.</div>
@@ -1812,6 +1837,7 @@ function buildPrep() {
     });
   });
 
+  renderRealtimeModelSelect();
   if (generatedOpener) renderExistingOpener();
 }
 
@@ -1831,6 +1857,24 @@ function renderExistingOpener() {
   box.appendChild(openerHint);
   if (genBtn) genBtn.style.display = 'none';
   if (regenBtn) regenBtn.style.display = 'block';
+}
+
+function renderRealtimeModelSelect() {
+  const select = document.getElementById('liveRealtimeModel');
+  const hint = document.getElementById('liveRealtimeModelHint');
+  if (!select) return;
+  select.innerHTML = Object.entries(REALTIME_MODELS).map(([id, model]) =>
+    `<option value="${id}">${model.label} — ${model.sub}</option>`
+  ).join('');
+  if (!(liveRealtimeModel in REALTIME_MODELS)) liveRealtimeModel = 'gpt-realtime';
+  select.value = liveRealtimeModel;
+  if (hint) hint.textContent = `${getRealtimeModelMeta(liveRealtimeModel).label}: ${getRealtimeModelMeta(liveRealtimeModel).sub}. Used for Live and Voice Practice.`;
+  select.onchange = () => {
+    liveRealtimeModel = select.value in REALTIME_MODELS ? select.value : 'gpt-realtime';
+    if (hint) hint.textContent = `${getRealtimeModelMeta(liveRealtimeModel).label}: ${getRealtimeModelMeta(liveRealtimeModel).sub}. Used for Live and Voice Practice.`;
+    updateVoicePracticeFootnote();
+    persistSessionState();
+  };
 }
 
 function getLiveValues() {
@@ -2607,6 +2651,7 @@ async function startMic() {
     if (currentProvider === 'openai' && SecureStore.has()) {
       liveHeaders['X-OpenAI-Key'] = SecureStore.get();
     }
+    liveHeaders['X-OpenAI-Realtime-Model'] = liveRealtimeModel;
 
     const response = await fetch('/api/live/call', {
       method: 'POST',
@@ -3329,6 +3374,7 @@ function restoreSessionState() {
     chatMobileHasBot = !!snapshot.chatMobileHasBot;
     earOn = snapshot.earOn !== false;
     realtimeMode = snapshot.realtimeMode === 'practice' ? 'practice' : 'coach';
+    liveRealtimeModel = snapshot.liveRealtimeModel in REALTIME_MODELS ? snapshot.liveRealtimeModel : 'gpt-realtime';
 
     syncSelectedScenarioCard();
     syncEarUI();
