@@ -463,6 +463,27 @@ const NEGOTIATION_STYLES = {
   }
 };
 
+const PRACTICE_DIFFICULTIES = {
+  cooperative: {
+    label: 'Cooperative',
+    sub: 'Light pushback',
+    stance: 'You are polite and pragmatic, looking for a fair outcome but still protecting your side.',
+    pressure: 'Low'
+  },
+  balanced: {
+    label: 'Neutral',
+    sub: 'Realistic pushback',
+    stance: 'You are professional and commercially disciplined. You probe, counter, and ask for justification.',
+    pressure: 'Medium'
+  },
+  tough: {
+    label: 'Hardball',
+    sub: 'Firm pressure',
+    stance: 'You are skeptical and guard budget/terms tightly. You counter hard, exploit hesitation, and force specifics.',
+    pressure: 'High'
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // APP STATE
 // ─────────────────────────────────────────────────────────────────────────────
@@ -477,6 +498,10 @@ let liveResponseBuffer = '';
 let liveCurrentCoach = null;
 let currentNegotiationStyle = 'composed';
 let pendingSpeechTimer = null;
+let practiceHistory = [];
+let practiceTyping = false;
+let practiceDifficulty = 'balanced';
+let practiceKickoffStarted = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
@@ -637,7 +662,11 @@ function updateModelSelect(provider) {
   ).join('');
   currentModel = p.models[0].id;
   sel.value = currentModel;
-  sel.onchange = () => { currentModel = sel.value; };
+  sel.onchange = () => {
+    currentModel = sel.value;
+    if (typeof updateChatFootnote === 'function') updateChatFootnote();
+    if (typeof updatePracticeFootnote === 'function') updatePracticeFootnote();
+  };
 }
 
 function getProviderNote(provider) {
@@ -675,6 +704,8 @@ function getProviderNote(provider) {
       document.getElementById('keyVerifyStatus').textContent = '';
       document.getElementById('keyVerifyStatus').className = 'key-verify-status';
       updateModelSelect(currentProvider);
+      if (typeof updateChatFootnote === 'function') updateChatFootnote();
+      if (typeof updatePracticeFootnote === 'function') updatePracticeFootnote();
     });
   });
 })();
@@ -735,6 +766,199 @@ function pickSC(card, sc) {
 function goPrep() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
   generatedOpener = ''; buildPrep(); go('s-prep');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRACTICE MODE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function renderPracticeDifficultyChips() {
+  const containers = [document.getElementById('practiceDifficultyChips'), document.getElementById('practiceDifficultySidebar')].filter(Boolean);
+  containers.forEach(container => {
+    container.innerHTML = '';
+    Object.entries(PRACTICE_DIFFICULTIES).forEach(([id, diff]) => {
+      const btn = document.createElement('button');
+      btn.className = 'practice-chip' + (practiceDifficulty === id ? ' active' : '');
+      btn.dataset.difficulty = id;
+      btn.innerHTML = `<div>${diff.label}</div><span class="practice-chip-sub">${diff.sub}</span>`;
+      btn.addEventListener('click', () => setPracticeDifficulty(id));
+      container.appendChild(btn);
+    });
+  });
+}
+
+function setPracticeStatus(text) {
+  const el = document.getElementById('practiceStatus');
+  if (el) el.textContent = text;
+}
+
+function setPracticeTitles() {
+  const sceneName = currentSC ? currentSC.name : 'Practice';
+  const mobile = document.getElementById('practiceTitle');
+  const desktop = document.getElementById('practiceTitleSidebar');
+  if (mobile) mobile.textContent = sceneName;
+  if (desktop) desktop.textContent = sceneName;
+}
+
+function setPracticeDifficulty(id) {
+  if (!(id in PRACTICE_DIFFICULTIES)) return;
+  practiceDifficulty = id;
+  renderPracticeDifficultyChips();
+  const hint = document.getElementById('practiceHint');
+  if (hint) hint.textContent = `${PRACTICE_DIFFICULTIES[id].label}: ${PRACTICE_DIFFICULTIES[id].stance}`;
+}
+
+function appendPracticeMsg(role, text) {
+  const msgs = document.getElementById('practiceMessages');
+  if (!msgs) return;
+  const wrap = document.createElement('div');
+  wrap.className = `practice-msg ${role}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'practice-bubble';
+  renderMultilineText(bubble, text);
+  wrap.appendChild(bubble);
+  msgs.appendChild(wrap);
+  msgs.scrollTop = msgs.scrollHeight;
+  return wrap;
+}
+
+function showPracticeTyping() {
+  const msgs = document.getElementById('practiceMessages');
+  if (!msgs) return;
+  const el = document.createElement('div');
+  el.className = 'practice-typing'; el.id = 'practiceTypingIndicator';
+  for (let i = 0; i < 3; i++) {
+    const d = document.createElement('div'); d.className = 'practice-typing-dot'; el.appendChild(d);
+  }
+  msgs.appendChild(el); msgs.scrollTop = msgs.scrollHeight;
+}
+
+function removePracticeTyping() {
+  const el = document.getElementById('practiceTypingIndicator');
+  if (el) el.remove();
+}
+
+function getPracticeSceneName() {
+  const { customName } = getLiveValues();
+  if (!currentSC) return 'Custom';
+  return currentSC.id === 'custom' ? (customName || 'Custom') : currentSC.name;
+}
+
+function getPracticePrompt() {
+  const { anc, batna, zopa, customName, styleId } = getLiveValues();
+  const style = NEGOTIATION_STYLES[styleId] || NEGOTIATION_STYLES.composed;
+  const diff = PRACTICE_DIFFICULTIES[practiceDifficulty] || PRACTICE_DIFFICULTIES.balanced;
+  const sceneName = getPracticeSceneName();
+  const scPrompt = LIVE_SCENARIO_PROMPTS[currentSC?.id] || null;
+  const roleLine = scPrompt ? scPrompt.role.replace('You are coaching', 'You are playing') : 'You are the counterparty in this negotiation.';
+  const objectiveLine = scPrompt?.objective ? `Objective: ${scPrompt.objective}` : '';
+  const exampleLines = scPrompt?.examples ? scPrompt.examples.map(e => `- ${e}`).join('\n') : '';
+  return `You are role-playing the COUNTERPARTY in a live negotiation practice.
+
+Scenario: ${sceneName}
+${roleLine}
+${objectiveLine}
+Anchors (user's asks): High ${anc[0] || 'n/a'}, Mid ${anc[1] || 'n/a'}, Floor ${anc[2] || 'n/a'}
+User BATNA (their alternative): ${batna || 'n/a'}
+User believes the other side's likely range: ${zopa || 'n/a'}
+
+Difficulty mode: ${diff.label} (${diff.pressure} pressure). ${diff.stance}
+Style selected by user: ${style.label} — ${style.guidance}
+
+Rules for you:
+- Stay entirely in character as the counterparty (recruiter, landlord, dealer, client, etc.). Never mention you are a simulation or coach.
+- Respond in 1–3 sentences. Be concise and commercial.
+- Push back, ask targeted questions, and counter with numbers or terms. Do not simply agree.
+- If the user gives a number, react realistically (counter, probe, or trade). Avoid parroting their number back.
+- Do not reveal or rely on the user's BATNA or floor. Treat them as unknown.
+- Use the difficulty setting to set firmness and pressure. Hardball = tighter concessions and more scrutiny.
+- Use the style to shape tone, not to soften leverage.
+- Keep momentum; avoid long monologues.
+
+If you need to start the conversation, open with a realistic line for the counterpart in this scenario.
+${exampleLines ? `Scenario cues:\n${exampleLines}` : ''}`;
+}
+
+function updatePracticeFootnote() {
+  const p = PROVIDERS[currentProvider];
+  const modelLabel = p?.models?.find(m => m.id === currentModel)?.label || currentModel;
+  const foot = `Counterparty AI · ${p?.name || currentProvider} · ${modelLabel}`;
+  const el = document.getElementById('practiceFootnote');
+  if (el) el.textContent = foot;
+}
+
+function resetPractice(startOver = false) {
+  practiceHistory = [];
+  practiceTyping = false;
+  practiceKickoffStarted = false;
+  const msgs = document.getElementById('practiceMessages');
+  if (msgs) msgs.innerHTML = '';
+  removePracticeTyping();
+  setPracticeStatus('Ready when you are. You can start or let them start.');
+  setPracticeTitles();
+  renderPracticeDifficultyChips();
+  if (startOver) {
+    setTimeout(kickoffPractice, 60);
+  }
+}
+
+async function kickoffPractice() {
+  if (practiceKickoffStarted) return;
+  practiceKickoffStarted = true;
+  setPracticeStatus('Spinning up the counterparty...');
+  showPracticeTyping();
+  try {
+    const reply = await secureAPICall([
+      { role: 'system', content: getPracticePrompt() },
+      { role: 'user', content: 'Give a single realistic opening line the counterparty would say to begin this negotiation. One sentence.' }
+    ], 160, false);
+    removePracticeTyping();
+    appendPracticeMsg('ai', reply);
+    practiceHistory.push({ role: 'assistant', content: reply });
+    setPracticeStatus('Respond with your opener. Keep it sharp.');
+  } catch(err) {
+    removePracticeTyping();
+    setPracticeStatus('Open with your line to start practice.');
+    toast(err.message || 'Could not start practice.');
+  }
+}
+
+async function practiceSend() {
+  const inp = document.getElementById('practiceInput');
+  if (!inp) return;
+  const text = (inp.value || '').trim();
+  if (!text || practiceTyping) return;
+  inp.value = ''; inp.style.height = 'auto';
+  appendPracticeMsg('user', text);
+  practiceHistory.push({ role: 'user', content: text });
+  practiceTyping = true;
+  document.getElementById('practiceSendBtn').disabled = true;
+  showPracticeTyping();
+  try {
+    const messages = [{ role: 'system', content: getPracticePrompt() }, ...practiceHistory];
+    const reply = await secureAPICall(messages, 320, false);
+    removePracticeTyping();
+    appendPracticeMsg('ai', reply);
+    practiceHistory.push({ role: 'assistant', content: reply });
+    setPracticeStatus('Keep it moving — short, specific turns.');
+  } catch(err) {
+    removePracticeTyping();
+    appendPracticeMsg('ai', `Practice error: ${err.message}`);
+    setPracticeStatus('Try again after fixing the issue.');
+  }
+  practiceTyping = false;
+  document.getElementById('practiceSendBtn').disabled = false;
+  inp.focus();
+}
+
+function goPractice() {
+  if (!currentSC) { toast('Choose a scenario first'); return; }
+  setPracticeTitles();
+  updatePracticeFootnote();
+  setPracticeDifficulty(practiceDifficulty);
+  go('s-practice');
+  resetPractice(false);
+  setTimeout(kickoffPractice, 220);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1986,6 +2210,18 @@ document.addEventListener('DOMContentLoaded', () => {});
   });
   ta.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); }
+  });
+})();
+
+(function initPracticeInput() {
+  const ta = document.getElementById('practiceInput');
+  if (!ta) return;
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 120) + 'px';
+  });
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); practiceSend(); }
   });
 })();
 

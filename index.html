@@ -121,6 +121,11 @@
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
       <button class="icon-btn" onclick="changeKey()" title="Change API key">&#8644;</button>
+      <button class="icon-btn" onclick="goPractice()" title="Practice mode" id="practiceIconBtn">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2.25A.75.75 0 018.75 4v3.19l2.28 1.32a.75.75 0 01-.75 1.3l-2.5-1.45A.75.75 0 017.25 7.9V4A.75.75 0 018 3.25z" fill="currentColor"/>
+        </svg>
+      </button>
       <button class="icon-btn" onclick="goChat()" title="AI Chat" id="chatIconBtn">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M14 1H2C1.44772 1 1 1.44772 1 2V10C1 10.5523 1.44772 11 2 11H5V14.5L9.5 11H14C14.5523 11 15 10.5523 15 10V2C15 1.44772 14.5523 1 14 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -134,6 +139,7 @@
     <div class="card-list" id="cardList"></div>
     <div class="home-cta">
       <button class="btn" onclick="goPrep()">See Prep Brief</button>
+      <button class="btn ghost" onclick="goPractice()">Practice Mode</button>
     </div>
   </div>
 </div>
@@ -164,6 +170,49 @@
     <div class="prep-cta">
       <button class="btn" onclick="goLive()">Go Live</button>
       <div class="info-hint">Live mode uses OpenAI Realtime. Prep and chat can still use other providers.</div>
+    </div>
+  </div>
+</div>
+
+<!-- S-PRACTICE -->
+<div class="screen" id="s-practice">
+  <!-- Desktop sidebar -->
+  <div class="practice-sidebar">
+    <button class="nav-back" onclick="go('s-home')" style="margin-bottom:24px;align-self:flex-start;">&#8592;</button>
+    <div class="nav-title" id="practiceTitleSidebar">—</div>
+    <div class="nav-chip" style="margin-top:8px;align-self:flex-start;">Practice</div>
+    <div class="practice-difficulty" id="practiceDifficultySidebar"></div>
+    <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us" style="margin-top:auto;">Contact</a>
+  </div>
+
+  <!-- Mobile nav -->
+  <div class="nav-bar" id="practiceNav">
+    <button class="nav-back" onclick="go('s-home')">&#8592;</button>
+    <div class="nav-title" id="practiceTitle">—</div>
+    <div class="nav-chip">Practice</div>
+    <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
+  </div>
+
+  <div class="practice-main">
+    <div class="practice-top">
+      <div class="practice-label">Difficulty</div>
+      <div class="practice-difficulty" id="practiceDifficultyChips"></div>
+      <button class="practice-reset" onclick="resetPractice(true)">&#8635; Start over</button>
+    </div>
+    <div class="practice-hint" id="practiceHint">The AI plays your counterparty. Keep it tight and negotiate.</div>
+
+    <div class="practice-view">
+      <div class="practice-status" id="practiceStatus">Ready when you are. You can start or let them start.</div>
+      <div class="practice-messages" id="practiceMessages"></div>
+      <div class="practice-input-area">
+        <div class="practice-input-row">
+          <textarea class="practice-textarea" id="practiceInput" placeholder="Say your line…" rows="1" spellcheck="false"></textarea>
+          <button class="practice-send-btn" id="practiceSendBtn" onclick="practiceSend()">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M14 8L2 2l2.5 6L2 14l12-6z" fill="currentColor"/></svg>
+          </button>
+        </div>
+        <div class="practice-footnote" id="practiceFootnote">—</div>
+      </div>
     </div>
   </div>
 </div>
