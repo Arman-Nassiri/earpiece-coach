@@ -516,6 +516,140 @@ let practiceReviewContext = null;
 let realtimeMode = 'coach';
 let liveLastAssistantLine = '';
 let liveLastAssistantAt = 0;
+let practiceReviewState = null;
+
+const SESSION_STATE_KEY = 'gc-session-v1';
+const SCREEN_ROUTE_MAP = {
+  's-launch': 'launch',
+  's-key': 'key',
+  's-home': 'home',
+  's-prep': 'prep',
+  's-practice': 'practice',
+  's-practice-voice': 'practice-voice',
+  's-practice-review': 'review',
+  's-live': 'live',
+  's-chat': 'chat'
+};
+const ROUTE_SCREEN_MAP = Object.fromEntries(
+  Object.entries(SCREEN_ROUTE_MAP).map(([screen, route]) => [route, screen])
+);
+let sessionPersistInterval = null;
+let isRestoringSession = false;
+
+function getActiveScreenId() {
+  return document.querySelector('.screen.active')?.id || 's-launch';
+}
+
+function getRouteForScreen(screenId) {
+  return SCREEN_ROUTE_MAP[screenId] || 'launch';
+}
+
+function getScreenForRoute(hashValue = window.location.hash) {
+  const route = String(hashValue || '').replace(/^#/, '').trim();
+  return ROUTE_SCREEN_MAP[route] || '';
+}
+
+function updateRouteHash(screenId, replace = false) {
+  const route = getRouteForScreen(screenId);
+  const nextHash = `#${route}`;
+  if (window.location.hash === nextHash) return;
+  if (replace) {
+    window.history.replaceState(null, '', nextHash);
+  } else {
+    window.history.pushState(null, '', nextHash);
+  }
+}
+
+function cloneJsonSafe(value, fallback) {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch (_) {
+    return fallback;
+  }
+}
+
+function normalizeScenarioAnchors(anchors, fallback = []) {
+  const source = Array.isArray(anchors) && anchors.length ? anchors : fallback;
+  return source.map((anchor, idx) => ({
+    l: String(anchor?.l || fallback[idx]?.l || ['High', 'Mid', 'Floor'][idx] || `Anchor ${idx + 1}`).trim(),
+    v: String(anchor?.v || '').trim()
+  })).slice(0, 3);
+}
+
+function hydrateScenario(savedScenario) {
+  if (!savedScenario || typeof savedScenario !== 'object') return null;
+  const base = LIBRARY.find(sc => sc.id === savedScenario.id) || LIBRARY.find(sc => sc.id === 'custom');
+  if (!base) return null;
+  return {
+    ...base,
+    ...savedScenario,
+    id: savedScenario.id || base.id,
+    name: String(savedScenario.name || base.name || 'Custom').trim(),
+    sub: String(savedScenario.sub || base.sub || '').trim(),
+    anchors: normalizeScenarioAnchors(savedScenario.anchors, base.anchors),
+    batna: String(savedScenario.batna || base.batna || '').trim(),
+    zopa: String(savedScenario.zopa || base.zopa || '').trim()
+  };
+}
+
+function syncSelectedScenarioCard() {
+  document.querySelectorAll('.scenario-card').forEach((card, idx) => {
+    card.classList.toggle('selected', !!currentSC && LIBRARY[idx]?.id === currentSC.id);
+  });
+}
+
+function buildSessionSnapshot() {
+  return {
+    version: 1,
+    activeScreen: getActiveScreenId(),
+    currentProvider,
+    currentModel,
+    apiKey: SecureStore.get(),
+    currentSC: cloneJsonSafe(currentSC, null),
+    currentNegotiationStyle,
+    negotiationDraft: cloneJsonSafe(negotiationDraft, null),
+    generatedOpener,
+    practiceDifficulty,
+    practiceHistory: cloneJsonSafe(practiceHistory, []),
+    practiceTranscript: cloneJsonSafe(practiceTranscript, []),
+    sessionHistory: cloneJsonSafe(sessionHistory, []),
+    liveCurrentCoach: cloneJsonSafe(liveCurrentCoach, null),
+    practiceReviewContext: cloneJsonSafe(practiceReviewContext, null),
+    practiceReviewState: cloneJsonSafe(practiceReviewState, null),
+    chatHistory: cloneJsonSafe(chatHistory, []),
+    chatBot,
+    chatMobileHasBot,
+    earOn,
+    realtimeMode
+  };
+}
+
+function persistSessionState() {
+  if (isRestoringSession) return;
+  try {
+    window.sessionStorage.setItem(SESSION_STATE_KEY, JSON.stringify(buildSessionSnapshot()));
+  } catch (_) {}
+}
+
+function loadSessionSnapshot() {
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_STATE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function startSessionPersistence() {
+  if (sessionPersistInterval) window.clearInterval(sessionPersistInterval);
+  sessionPersistInterval = window.setInterval(persistSessionState, 1200);
+  window.addEventListener('pagehide', persistSessionState);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') persistSessionState();
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
@@ -644,7 +778,8 @@ function openContact(event) {
 // ─────────────────────────────────────────────────────────────────────────────
 // NAVIGATION
 // ─────────────────────────────────────────────────────────────────────────────
-function go(id) {
+function go(id, options = {}) {
+  const { replaceHash = false, updateHash = true } = options;
   const cur = document.querySelector('.screen.active');
   if (cur?.id === 's-practice' && id !== 's-practice') {
     resetPracticeRequestState();
@@ -657,7 +792,11 @@ function go(id) {
     cur.classList.add('leaving'); cur.classList.remove('active');
     setTimeout(() => cur.classList.remove('leaving'), 280);
   }
-  setTimeout(() => document.getElementById(id).classList.add('active'), 55);
+  setTimeout(() => {
+    document.getElementById(id).classList.add('active');
+    if (updateHash) updateRouteHash(id, replaceHash);
+    persistSessionState();
+  }, 55);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -707,6 +846,27 @@ function isProviderSupported(provider) {
   return !!PROVIDERS[provider]?.supported;
 }
 
+function applyProviderSelection(provider, preferredModel = '') {
+  const nextProvider = PROVIDERS[provider] ? provider : 'openai';
+  currentProvider = nextProvider;
+  document.querySelectorAll('.ptab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.provider === nextProvider);
+  });
+  document.getElementById('keyNote').textContent = getProviderNote(nextProvider);
+  document.getElementById('keyVerifyStatus').textContent = '';
+  document.getElementById('keyVerifyStatus').className = 'key-verify-status';
+  updateModelSelect(nextProvider);
+  const p = PROVIDERS[nextProvider];
+  const selectedModel = p.models.some(model => model.id === preferredModel) ? preferredModel : p.models[0].id;
+  currentModel = selectedModel;
+  const modelSelect = document.getElementById('modelSelect');
+  if (modelSelect) modelSelect.value = selectedModel;
+  syncProviderAccessState(nextProvider);
+  if (typeof updateChatFootnote === 'function') updateChatFootnote();
+  if (typeof updatePracticeFootnote === 'function') updatePracticeFootnote();
+  if (typeof updateVoicePracticeFootnote === 'function') updateVoicePracticeFootnote();
+}
+
 function syncProviderAccessState(provider) {
   const p = PROVIDERS[provider];
   if (!p) return;
@@ -754,26 +914,15 @@ function syncProviderAccessState(provider) {
 // PROVIDER TABS
 // ─────────────────────────────────────────────────────────────────────────────
 (function initProviderTabs() {
-  updateModelSelect('openai');
-  document.getElementById('keyNote').textContent = getProviderNote('openai');
   document.querySelectorAll('.ptab').forEach(tab => {
     tab.classList.toggle('unsupported', !isProviderSupported(tab.dataset.provider));
     tab.setAttribute('aria-disabled', String(!isProviderSupported(tab.dataset.provider)));
     tab.addEventListener('click', () => {
-      document.querySelectorAll('.ptab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      currentProvider = tab.dataset.provider;
-      document.getElementById('keyNote').textContent = getProviderNote(currentProvider);
-      document.getElementById('keyVerifyStatus').textContent = '';
-      document.getElementById('keyVerifyStatus').className = 'key-verify-status';
-      updateModelSelect(currentProvider);
-      syncProviderAccessState(currentProvider);
-      if (typeof updateChatFootnote === 'function') updateChatFootnote();
-      if (typeof updatePracticeFootnote === 'function') updatePracticeFootnote();
-      if (typeof updateVoicePracticeFootnote === 'function') updateVoicePracticeFootnote();
+      applyProviderSelection(tab.dataset.provider, currentModel);
+      persistSessionState();
     });
   });
-  syncProviderAccessState('openai');
+  applyProviderSelection('openai', currentModel);
 })();
 
 function getRawKey() {
@@ -956,6 +1105,52 @@ function getPracticeReplayHandler() {
   return goPractice;
 }
 
+function renderPracticeReviewScreen() {
+  const verdict = document.getElementById('practiceReviewVerdict');
+  const score = document.getElementById('practiceReviewScore');
+  const summary = document.getElementById('practiceReviewSummary');
+  const footnote = document.getElementById('practiceReviewFootnote');
+  const loading = document.getElementById('practiceReviewLoading');
+  const content = document.getElementById('practiceReviewContent');
+  const replay = document.getElementById('practiceReviewReplayBtn');
+
+  if (practiceReviewContext?.sceneName) {
+    const title = document.getElementById('practiceReviewTitle');
+    if (title) title.textContent = practiceReviewContext.sceneName;
+  }
+  if (practiceReviewContext?.mode) {
+    const subtitle = document.getElementById('practiceReviewSubtitle');
+    if (subtitle) {
+      subtitle.textContent =
+        practiceReviewContext.mode === 'live' ? 'Live Session Review' :
+        practiceReviewContext.mode === 'voice' ? 'Voice Practice Review' :
+        'Text Practice Review';
+    }
+    if (replay) {
+      replay.textContent =
+        practiceReviewContext.mode === 'live' ? 'Go Live Again' :
+        practiceReviewContext.mode === 'voice' ? 'Run Voice Again' :
+        'Run Text Again';
+    }
+  }
+
+  if (!practiceReviewState) {
+    if (loading) loading.style.display = 'flex';
+    if (content) content.style.display = 'none';
+    return;
+  }
+
+  if (verdict) verdict.textContent = practiceReviewState.verdict || 'Session review';
+  if (score) score.textContent = practiceReviewState.score || '—';
+  if (summary) summary.textContent = practiceReviewState.summary || 'Review completed.';
+  if (footnote) footnote.textContent = practiceReviewState.footnote || 'Review restored after reload.';
+  renderPracticeReviewList('practiceReviewStrengths', practiceReviewState.strengths);
+  renderPracticeReviewList('practiceReviewMisses', practiceReviewState.misses);
+  renderPracticeReviewList('practiceReviewReps', practiceReviewState.reps);
+  if (loading) loading.style.display = practiceReviewState.loading ? 'flex' : 'none';
+  if (content) content.style.display = practiceReviewState.loading ? 'none' : 'grid';
+}
+
 function openPracticeReviewShell(mode) {
   practiceReviewContext = {
     mode,
@@ -1001,6 +1196,16 @@ function openPracticeReviewShell(mode) {
   }
   if (loading) loading.style.display = 'flex';
   if (content) content.style.display = 'none';
+  practiceReviewState = {
+    loading: true,
+    verdict: 'Analyzing...',
+    score: '—',
+    summary: 'Reading the session and building quick professional feedback.',
+    strengths: [],
+    misses: [],
+    reps: [],
+    footnote: footnote?.textContent || ''
+  };
   go('s-practice-review');
 }
 
@@ -1075,6 +1280,16 @@ Rules:
     if (score) score.textContent = review.score || '—';
     if (summary) summary.textContent = review.summary || 'Review completed.';
     if (footnote) footnote.textContent = `Reviewed with ${PROVIDERS[currentProvider]?.name || currentProvider} · ${currentModel}`;
+    practiceReviewState = {
+      loading: false,
+      verdict: review.verdict || 'Session review',
+      score: review.score || '—',
+      summary: review.summary || 'Review completed.',
+      strengths: Array.isArray(review.strengths) ? review.strengths : [],
+      misses: Array.isArray(review.misses) ? review.misses : [],
+      reps: Array.isArray(review.reps) ? review.reps : [],
+      footnote: `Reviewed with ${PROVIDERS[currentProvider]?.name || currentProvider} · ${currentModel}`
+    };
     renderPracticeReviewList('practiceReviewStrengths', review.strengths);
     renderPracticeReviewList('practiceReviewMisses', review.misses);
     renderPracticeReviewList('practiceReviewReps', review.reps);
@@ -1087,6 +1302,16 @@ Rules:
     if (content) content.style.display = 'grid';
     if (verdict) verdict.textContent = 'Review unavailable';
     if (summary) summary.textContent = err.message || 'Could not analyze the practice session.';
+    practiceReviewState = {
+      loading: false,
+      verdict: 'Review unavailable',
+      score: '—',
+      summary: err.message || 'Could not analyze the practice session.',
+      strengths: [],
+      misses: [],
+      reps: [],
+      footnote: ''
+    };
     renderPracticeReviewList('practiceReviewStrengths', []);
     renderPracticeReviewList('practiceReviewMisses', []);
     renderPracticeReviewList('practiceReviewReps', []);
@@ -1585,6 +1810,26 @@ function buildPrep() {
       if (hint) hint.textContent = NEGOTIATION_STYLES[nextStyle].guidance;
     });
   });
+
+  if (generatedOpener) renderExistingOpener();
+}
+
+function renderExistingOpener() {
+  const genBtn = document.getElementById('openerGenBtn');
+  const regenBtn = document.getElementById('openerRegenBtn');
+  const box = document.getElementById('openerBox');
+  if (!box || !generatedOpener) return;
+  box.textContent = '';
+  const openerText = document.createElement('div');
+  openerText.className = 'opener-text';
+  openerText.textContent = generatedOpener;
+  const openerHint = document.createElement('div');
+  openerHint.className = 'opener-hint';
+  openerHint.textContent = 'Say this first. Then stop talking.';
+  box.appendChild(openerText);
+  box.appendChild(openerHint);
+  if (genBtn) genBtn.style.display = 'none';
+  if (regenBtn) regenBtn.style.display = 'block';
 }
 
 function getLiveValues() {
@@ -2861,6 +3106,234 @@ function launchFromChat() {
   go('s-prep');
 }
 
+function renderTextPracticeState() {
+  setPracticeTitles();
+  updatePracticeFootnote();
+  setPracticeDifficulty(practiceDifficulty);
+  resetPracticeRequestState();
+  const msgs = document.getElementById('practiceMessages');
+  const input = document.getElementById('practiceInput');
+  if (msgs) msgs.innerHTML = '';
+  if (input) {
+    input.value = '';
+    input.style.height = 'auto';
+  }
+  practiceTranscript.forEach(entry => {
+    appendPracticeMsg(entry.role === 'user' ? 'user' : 'ai', entry.text);
+  });
+  setPracticeStatus(
+    practiceTranscript.length ? 'Reloaded. Continue when ready.' : 'Ready when you are. You can start or let them start.',
+    'on'
+  );
+}
+
+function renderVoicePracticeState() {
+  realtimeMode = 'practice';
+  micActive = false;
+  liveLastAssistantLine = '';
+  liveLastAssistantAt = 0;
+  resetLiveRealtimeState();
+  setVoicePracticeTitles();
+  updateVoicePracticeFootnote();
+  renderPracticeDifficultyChips();
+  const hint = document.getElementById('practiceVoiceHint');
+  if (hint) hint.textContent = `${PRACTICE_DIFFICULTIES[practiceDifficulty]?.label || 'Neutral'}: ${PRACTICE_DIFFICULTIES[practiceDifficulty]?.stance || ''}`;
+  const history = document.getElementById('practiceVoiceHistory');
+  if (history) history.innerHTML = '';
+  sessionHistory.forEach(turn => {
+    if (turn?.r === 'you') appendVoicePracticeMsg('user', turn.t);
+    if (turn?.r === 'them') appendVoicePracticeMsg('ai', turn.t);
+  });
+  const lastThem = [...sessionHistory].reverse().find(turn => turn?.r === 'them');
+  setVoicePracticeHeadline(lastThem?.t || 'Speak naturally. The counterparty will answer in real time.');
+  setVoicePracticeTranscript('', '');
+  const btn = document.getElementById('practiceVoiceOpenBtn');
+  if (btn) btn.disabled = false;
+}
+
+function renderLiveState() {
+  realtimeMode = 'coach';
+  micActive = false;
+  resetLiveRealtimeState();
+  const { customName } = getLiveValues();
+  const sceneName = currentSC?.id === 'custom' ? (customName || currentSC?.name || 'Custom') : (currentSC?.name || 'Custom');
+  const mobileScene = document.getElementById('liveScene');
+  const sidebarScene = document.getElementById('liveSceneSidebar');
+  if (mobileScene) mobileScene.textContent = sceneName;
+  if (sidebarScene) sidebarScene.textContent = sceneName;
+  const transcriptHistory = document.getElementById('tHistory');
+  const transcriptLive = document.getElementById('tLive');
+  if (transcriptHistory) transcriptHistory.innerHTML = '';
+  if (transcriptLive) transcriptLive.innerHTML = '';
+  sessionHistory.filter(turn => turn?.r === 'them').slice(-3).forEach(turn => pushBubble(turn.t));
+  document.getElementById('cIdle').style.display = 'flex';
+  document.getElementById('cResult').classList.remove('show');
+  document.getElementById('coachCard').classList.remove('live');
+  if (liveCurrentCoach?.line && !liveCurrentCoach.delivered) {
+    showCoach(liveCurrentCoach);
+  }
+}
+
+function renderChatState() {
+  const isMobile = window.innerWidth < 768;
+  const botSelect = document.getElementById('chatBotSelect');
+  const chatView = document.getElementById('chatView');
+  const navTitle = document.getElementById('chatNavTitle');
+  const navChip = document.getElementById('chatNavChip');
+  const existing = document.getElementById('chatRedirectBanner');
+  if (existing) existing.remove();
+
+  if (isMobile && !chatMobileHasBot) {
+    botSelect.style.display = 'flex';
+    chatView.classList.remove('visible');
+    navTitle.textContent = 'AI Chat';
+    navChip.style.visibility = 'hidden';
+    setActiveSidebarBot(chatBot);
+    return;
+  }
+
+  botSelect.style.display = isMobile ? 'none' : 'none';
+  chatView.classList.add('visible');
+  navTitle.textContent = CHAT_BOTS[chatBot]?.name || 'AI Chat';
+  navChip.style.visibility = 'visible';
+  navChip.textContent = CHAT_BOTS[chatBot]?.chip || 'Chat';
+  setActiveSidebarBot(chatBot);
+  updateChatFootnote();
+
+  const msgs = document.getElementById('chatMessages');
+  if (msgs) msgs.innerHTML = '';
+  if (!chatHistory.length) {
+    loadChatBot(chatBot);
+    return;
+  }
+
+  chatHistory.forEach(entry => {
+    appendChatMsg(entry.role === 'user' ? 'user' : 'ai', entry.content);
+  });
+}
+
+function getRestoredScreenId(snapshot) {
+  const requested = getScreenForRoute() || snapshot?.activeScreen || (SecureStore.has() ? 's-home' : 's-launch');
+  if (!SecureStore.has()) {
+    return requested === 's-key' ? 's-key' : 's-launch';
+  }
+  if (!currentSC && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(requested)) {
+    return 's-home';
+  }
+  return requested;
+}
+
+function restoreScreenFromSession(screenId) {
+  switch (screenId) {
+    case 's-key':
+      go('s-key', { replaceHash: true });
+      return;
+    case 's-home':
+      syncSelectedScenarioCard();
+      go('s-home', { replaceHash: true });
+      return;
+    case 's-prep':
+      buildPrep();
+      go('s-prep', { replaceHash: true });
+      return;
+    case 's-practice':
+      if (!practiceTranscript.length) {
+        goPractice();
+        return;
+      }
+      renderTextPracticeState();
+      go('s-practice', { replaceHash: true });
+      return;
+    case 's-practice-voice':
+      renderVoicePracticeState();
+      go('s-practice-voice', { replaceHash: true });
+      setS('spin', 'Reloaded. Reconnecting microphone...');
+      setTimeout(startMic, 420);
+      return;
+    case 's-practice-review':
+      renderPracticeReviewScreen();
+      go('s-practice-review', { replaceHash: true });
+      return;
+    case 's-live':
+      renderLiveState();
+      go('s-live', { replaceHash: true });
+      setS('spin', 'Reloaded. Reconnecting microphone...');
+      setTimeout(startMic, 420);
+      return;
+    case 's-chat':
+      renderChatState();
+      go('s-chat', { replaceHash: true });
+      return;
+    default:
+      go('s-launch', { replaceHash: true });
+  }
+}
+
+function restoreSessionState() {
+  const snapshot = loadSessionSnapshot();
+  if (!snapshot) {
+    const requested = getScreenForRoute();
+    if (requested === 's-key') {
+      go('s-key', { replaceHash: true });
+      return;
+    }
+    updateRouteHash(getActiveScreenId(), true);
+    return;
+  }
+
+  isRestoringSession = true;
+  try {
+    if (snapshot.apiKey) SecureStore.set(String(snapshot.apiKey));
+    else SecureStore.clear();
+    currentProvider = PROVIDERS[snapshot.currentProvider] ? snapshot.currentProvider : 'openai';
+    currentModel = String(snapshot.currentModel || currentModel);
+    applyProviderSelection(currentProvider, currentModel);
+
+    currentSC = hydrateScenario(snapshot.currentSC);
+    currentNegotiationStyle = snapshot.currentNegotiationStyle in NEGOTIATION_STYLES ? snapshot.currentNegotiationStyle : 'composed';
+    negotiationDraft = null;
+    if (currentSC) initializeNegotiationDraft(currentSC);
+    if (snapshot.negotiationDraft) setNegotiationDraft(snapshot.negotiationDraft);
+    generatedOpener = String(snapshot.generatedOpener || '').trim();
+    practiceDifficulty = snapshot.practiceDifficulty in PRACTICE_DIFFICULTIES ? snapshot.practiceDifficulty : 'balanced';
+    practiceHistory = Array.isArray(snapshot.practiceHistory) ? snapshot.practiceHistory : [];
+    practiceTranscript = Array.isArray(snapshot.practiceTranscript) ? snapshot.practiceTranscript : [];
+    sessionHistory = Array.isArray(snapshot.sessionHistory) ? snapshot.sessionHistory : [];
+    liveCurrentCoach = snapshot.liveCurrentCoach && typeof snapshot.liveCurrentCoach === 'object' ? snapshot.liveCurrentCoach : null;
+    practiceReviewContext = snapshot.practiceReviewContext && typeof snapshot.practiceReviewContext === 'object' ? snapshot.practiceReviewContext : null;
+    practiceReviewState = snapshot.practiceReviewState && typeof snapshot.practiceReviewState === 'object' ? snapshot.practiceReviewState : null;
+    chatHistory = Array.isArray(snapshot.chatHistory) ? snapshot.chatHistory : [];
+    chatBot = snapshot.chatBot in CHAT_BOTS ? snapshot.chatBot : 'coach';
+    chatMobileHasBot = !!snapshot.chatMobileHasBot;
+    earOn = snapshot.earOn !== false;
+    realtimeMode = snapshot.realtimeMode === 'practice' ? 'practice' : 'coach';
+
+    syncSelectedScenarioCard();
+    syncEarUI();
+    restoreScreenFromSession(getRestoredScreenId(snapshot));
+  } catch (_) {
+    go('s-launch', { replaceHash: true });
+  } finally {
+    isRestoringSession = false;
+    persistSessionState();
+  }
+}
+
+window.addEventListener('hashchange', () => {
+  if (isRestoringSession) return;
+  const target = getScreenForRoute();
+  if (!target || target === getActiveScreenId()) return;
+  if (!SecureStore.has()) {
+    go(target === 's-key' ? 's-key' : 's-launch', { replaceHash: true });
+    return;
+  }
+  if (!currentSC && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(target)) {
+    go('s-home', { replaceHash: true });
+    return;
+  }
+  restoreScreenFromSession(target);
+});
+
 // Auto-resize textarea
 document.addEventListener('DOMContentLoaded', () => {});
 (function initChatInput() {
@@ -2890,4 +3363,5 @@ document.addEventListener('DOMContentLoaded', () => {});
 // ─────────────────────────────────────────────────────────────────────────────
 // CLEANUP
 // ─────────────────────────────────────────────────────────────────────────────
-window.addEventListener('beforeunload', () => SecureStore.clear());
+startSessionPersistence();
+restoreSessionState();
