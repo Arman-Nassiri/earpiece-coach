@@ -220,7 +220,7 @@ html, body {
    DESKTOP: main app screens — sidebar + main col
 ───────────────────────────────────────────────────── */
 @media (min-width: 768px) {
-  #s-home, #s-prep, #s-practice, #s-live, #s-chat {
+  #s-home, #s-prep, #s-practice, #s-practice-voice, #s-practice-review, #s-live, #s-chat {
     flex-direction: row;
     overflow: hidden;
   }
@@ -813,6 +813,8 @@ html, body {
    S-CHAT
 ───────────────────────────────────────────────────── */
 #s-practice { padding: 0; overflow: hidden; }
+#s-practice-voice { padding: 0; overflow: hidden; }
+#s-practice-review { padding: 0; overflow: hidden; }
 #s-chat { padding: 0; overflow: hidden; }
 
 /* Practice layout */
@@ -964,6 +966,15 @@ html, body {
 @media (min-width: 768px) {
   .practice-contact-mobile { display: none; }
 }
+.practice-action-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+.practice-action-row .btn,
+.practice-action-row .btn.ghost {
+  flex: 1;
+}
 .practice-thread-card {
   flex: 1;
   min-height: 0;
@@ -1092,6 +1103,252 @@ html, body {
   .practice-control-card {
     padding-left: 14px;
     padding-right: 14px;
+  }
+  .practice-action-row {
+    flex-direction: column;
+  }
+}
+
+/* Voice practice */
+.practice-voice-sidebar { display: none; }
+@media (min-width: 768px) {
+  .practice-voice-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    width: var(--sidebar);
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    padding: 40px 28px 32px;
+    background: var(--bg);
+    overflow-y: auto;
+  }
+  .practice-voice-sidebar .live-scene-name {
+    font-family: 'Instrument Serif', serif;
+    font-size: 22px;
+    line-height: 1.3;
+    color: var(--text);
+  }
+}
+.practice-voice-sidebar-meta {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text3);
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.practice-voice-nav {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: calc(var(--top-safe-gap) - 8px) 18px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+@media (min-width: 768px) { .practice-voice-nav { display: none; } }
+.practice-voice-nav-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.practice-voice-nav-copy .live-scene-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.practice-voice-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  min-height: 0;
+  overflow: hidden;
+  padding-bottom: calc(14px + var(--sab));
+}
+@media (min-width: 768px) {
+  .practice-voice-body {
+    padding: 36px;
+    gap: 16px;
+  }
+}
+.practice-voice-hero {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--r);
+  padding: 20px 18px 18px;
+  flex-shrink: 0;
+}
+.practice-voice-headline {
+  font-family: 'Instrument Serif', serif;
+  font-size: 28px;
+  line-height: 1.3;
+  color: var(--text);
+}
+.practice-voice-sub {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text3);
+}
+.practice-voice-hero .practice-difficulty {
+  margin-top: 14px;
+}
+.practice-voice-live {
+  font-size: 13px;
+  color: var(--text3);
+  line-height: 1.6;
+  min-height: 18px;
+  margin-top: 2px;
+}
+.practice-voice-log .practice-messages {
+  margin-top: 12px;
+}
+@media (max-width: 420px) {
+  .practice-voice-nav {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .practice-voice-body {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .practice-voice-headline {
+    font-size: 24px;
+  }
+}
+
+/* Practice review */
+.practice-review-sidebar { display: none; }
+@media (min-width: 768px) {
+  .practice-review-sidebar {
+    display: flex;
+    flex-direction: column;
+    width: var(--sidebar);
+    flex-shrink: 0;
+    border-right: 1px solid var(--border);
+    padding: 40px 28px 32px;
+    background: var(--bg);
+    overflow-y: auto;
+  }
+}
+.practice-review-footer-note {
+  margin-top: auto;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text3);
+}
+.practice-review-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 18px calc(24px + var(--sab));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+@media (min-width: 768px) {
+  .practice-review-body {
+    padding: 40px 36px 36px;
+    gap: 16px;
+  }
+}
+.practice-review-hero {
+  background: var(--surface);
+  border: 2px solid var(--border);
+  border-radius: var(--r);
+  padding: 24px 20px;
+}
+.practice-review-score {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text3);
+  margin-bottom: 12px;
+}
+.practice-review-verdict {
+  font-family: 'Instrument Serif', serif;
+  font-size: 32px;
+  line-height: 1.12;
+  color: var(--text);
+}
+.practice-review-summary {
+  margin-top: 12px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text2);
+}
+.practice-review-loading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--rs);
+}
+.practice-review-loading-text {
+  font-size: 13px;
+  color: var(--text3);
+}
+.practice-review-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 980px) {
+  .practice-review-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .practice-review-card-wide {
+    grid-column: 1 / -1;
+  }
+}
+.practice-review-card {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--r);
+  padding: 18px 20px;
+}
+.practice-review-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.practice-review-list li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text2);
+}
+.practice-review-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--text3);
+}
+.practice-review-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+@media (min-width: 768px) {
+  .practice-review-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+  .practice-review-actions .btn,
+  .practice-review-actions .btn.ghost {
+    width: auto;
+    min-width: 220px;
   }
 }
 
@@ -1296,5 +1553,63 @@ html, body {
   margin-left: 1px;
 }
 @keyframes twBlink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+@media (max-width: 767px) {
+  .home-sidebar {
+    padding: calc(var(--top-safe-gap) - 10px) 18px 0;
+  }
+  .home-wordmark {
+    font-size: 32px;
+  }
+  .home-sub {
+    font-size: 14px;
+  }
+  .section-label {
+    padding: 0 16px;
+    margin-top: 18px;
+  }
+  .card-list {
+    padding: 0 14px;
+    gap: 10px;
+  }
+  .home-cta {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .nav-bar,
+  .live-nav {
+    padding-left: 14px;
+    padding-right: 14px;
+    gap: 8px;
+  }
+  .nav-title {
+    font-size: 20px;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .nav-chip {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+  .edit-hint,
+  .prep-scroll,
+  .prep-cta,
+  .chat-bot-select,
+  .chat-messages,
+  .chat-input-area {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+  .chat-redirect-banner {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+  .chat-msg,
+  .practice-msg {
+    max-width: 90%;
+  }
+}
 
 ::-webkit-scrollbar { width: 0; height: 0; }

@@ -121,11 +121,6 @@
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
       <button class="icon-btn" onclick="changeKey()" title="Change API key">&#8644;</button>
-      <button class="icon-btn" onclick="goPractice()" title="Practice mode" id="practiceIconBtn">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 2.25A.75.75 0 018.75 4v3.19l2.28 1.32a.75.75 0 01-.75 1.3l-2.5-1.45A.75.75 0 017.25 7.9V4A.75.75 0 018 3.25z" fill="currentColor"/>
-        </svg>
-      </button>
       <button class="icon-btn" onclick="goChat()" title="AI Chat" id="chatIconBtn">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M14 1H2C1.44772 1 1 1.44772 1 2V10C1 10.5523 1.44772 11 2 11H5V14.5L9.5 11H14C14.5523 11 15 10.5523 15 10V2C15 1.44772 14.5523 1 14 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -218,6 +213,10 @@
         <a class="icon-btn contact-btn practice-contact-mobile" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       </div>
       <div class="practice-difficulty" id="practiceDifficultyChips"></div>
+      <div class="practice-action-row">
+        <button class="btn" onclick="goVoicePractice()">Voice Conversation</button>
+        <button class="btn ghost" onclick="analyzeTextPractice()">Analyze This Round</button>
+      </div>
     </div>
 
     <div class="practice-thread-card">
@@ -235,6 +234,114 @@
         </div>
         <div class="practice-footnote" id="practiceFootnote">—</div>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- S-PRACTICE-VOICE -->
+<div class="screen" id="s-practice-voice">
+  <div class="practice-voice-sidebar">
+    <div class="live-pill practice-pill">
+      <div class="live-dot"></div>
+      <div class="live-pill-text">Voice Practice</div>
+    </div>
+    <div class="live-scene-name" id="practiceVoiceTitleSidebar">—</div>
+    <div class="practice-sidebar-section">
+      <div class="practice-label">Difficulty</div>
+      <div class="practice-difficulty practice-difficulty-sidebar" id="practiceDifficultyVoiceSidebar"></div>
+    </div>
+    <div class="practice-hint" id="practiceVoiceHint">Neutral: professional and commercially disciplined.</div>
+    <div class="practice-voice-sidebar-meta" id="practiceVoiceFootnote">—</div>
+    <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us" style="width:fit-content;">Contact</a>
+    <button class="end-btn practice-reset-btn" id="practiceVoiceEndBtn" onclick="confirmEnd(this)">End &amp; Analyze</button>
+  </div>
+
+  <div class="practice-voice-nav">
+    <div class="practice-voice-nav-copy">
+      <div class="live-pill practice-pill">
+        <div class="live-dot"></div>
+        <div class="live-pill-text">Voice Practice</div>
+      </div>
+      <div class="live-scene-name" id="practiceVoiceTitle">—</div>
+    </div>
+    <button class="end-btn practice-reset-mini" id="practiceVoiceEndBtnMobile" onclick="confirmEnd(this)">End</button>
+  </div>
+
+  <div class="practice-voice-body">
+    <div class="practice-voice-hero">
+      <div class="t-label">Counterparty</div>
+      <div class="practice-voice-headline" id="practiceVoiceHeadline">Speak naturally. The counterparty will answer in real time.</div>
+      <div class="practice-voice-sub">Use headphones for the cleanest loop on phone. Text practice is still available if you want manual control.</div>
+      <div class="practice-action-row">
+        <button class="btn ghost" id="practiceVoiceOpenBtn" onclick="practiceVoiceLetThemOpen()">Let Them Open</button>
+        <button class="btn-ear on" id="practiceVoiceEarBtn" onclick="toggleEar()">VOICE ON</button>
+      </div>
+      <div class="practice-difficulty" id="practiceDifficultyVoice"></div>
+    </div>
+
+    <div class="practice-thread-card practice-voice-log">
+      <div class="t-label">Transcript</div>
+      <div class="practice-voice-live" id="practiceVoiceLiveText"></div>
+      <div class="practice-messages" id="practiceVoiceHistory"></div>
+    </div>
+
+    <div class="status-bar practice-status-bar">
+      <div class="s-dot" id="practiceVoiceStatusDot"></div>
+      <div class="s-text" id="practiceVoiceStatusText">Waiting for microphone...</div>
+      <div class="vol-row">
+        <div class="vb pvb"></div><div class="vb pvb"></div><div class="vb pvb"></div>
+        <div class="vb pvb"></div><div class="vb pvb"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- S-PRACTICE-REVIEW -->
+<div class="screen" id="s-practice-review">
+  <div class="practice-review-sidebar">
+    <button class="nav-back" onclick="go('s-home')" style="align-self:flex-start;">&#8592;</button>
+    <div class="nav-title" id="practiceReviewTitle">—</div>
+    <div class="nav-chip" id="practiceReviewSubtitle">Practice Review</div>
+    <div class="practice-review-footer-note" id="practiceReviewFootnote">—</div>
+    <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us" style="margin-top:16px; width:fit-content;">Contact</a>
+  </div>
+
+  <div class="nav-bar">
+    <button class="nav-back" onclick="go('s-home')">&#8592;</button>
+    <div class="nav-title">Practice Review</div>
+    <div class="nav-chip">Review</div>
+  </div>
+
+  <div class="practice-review-body">
+    <div class="practice-review-hero">
+      <div class="practice-review-score" id="practiceReviewScore">—</div>
+      <div class="practice-review-verdict" id="practiceReviewVerdict">Analyzing...</div>
+      <div class="practice-review-summary" id="practiceReviewSummary">Reading the session and building quick professional feedback.</div>
+    </div>
+
+    <div class="practice-review-loading" id="practiceReviewLoading">
+      <div class="opener-spinner"></div>
+      <div class="practice-review-loading-text">Building your review...</div>
+    </div>
+
+    <div class="practice-review-grid" id="practiceReviewContent" style="display:none;">
+      <div class="practice-review-card">
+        <div class="info-card-label">What Worked</div>
+        <ul class="practice-review-list" id="practiceReviewStrengths"></ul>
+      </div>
+      <div class="practice-review-card">
+        <div class="info-card-label">What Cost You</div>
+        <ul class="practice-review-list" id="practiceReviewMisses"></ul>
+      </div>
+      <div class="practice-review-card practice-review-card-wide">
+        <div class="info-card-label">Next Reps</div>
+        <ul class="practice-review-list" id="practiceReviewReps"></ul>
+      </div>
+    </div>
+
+    <div class="practice-review-actions">
+      <button class="btn" id="practiceReviewReplayBtn" onclick="replayPracticeReview()">Run Again</button>
+      <button class="btn ghost" onclick="go('s-home')">Back Home</button>
     </div>
   </div>
 </div>

@@ -500,10 +500,15 @@ let currentNegotiationStyle = 'composed';
 let pendingSpeechTimer = null;
 let negotiationDraft = null;
 let practiceHistory = [];
+let practiceTranscript = [];
 let practiceTyping = false;
 let practiceDifficulty = 'balanced';
 let practiceKickoffStarted = false;
 let practiceRequestToken = 0;
+let practiceReviewContext = null;
+let realtimeMode = 'coach';
+let liveLastAssistantLine = '';
+let liveLastAssistantAt = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
@@ -637,6 +642,10 @@ function go(id) {
   if (cur?.id === 's-practice' && id !== 's-practice') {
     resetPracticeRequestState();
   }
+  if (cur?.id === 's-practice-voice' && id !== 's-practice-voice') {
+    stopMic();
+    realtimeMode = 'coach';
+  }
   if (cur) {
     cur.classList.add('leaving'); cur.classList.remove('active');
     setTimeout(() => cur.classList.remove('leaving'), 280);
@@ -671,6 +680,7 @@ function updateModelSelect(provider) {
     currentModel = sel.value;
     if (typeof updateChatFootnote === 'function') updateChatFootnote();
     if (typeof updatePracticeFootnote === 'function') updatePracticeFootnote();
+    if (typeof updateVoicePracticeFootnote === 'function') updateVoicePracticeFootnote();
   };
 }
 
@@ -711,6 +721,7 @@ function getProviderNote(provider) {
       updateModelSelect(currentProvider);
       if (typeof updateChatFootnote === 'function') updateChatFootnote();
       if (typeof updatePracticeFootnote === 'function') updatePracticeFootnote();
+      if (typeof updateVoicePracticeFootnote === 'function') updateVoicePracticeFootnote();
     });
   });
 })();
@@ -858,12 +869,169 @@ function resetPracticeRequestState() {
   if (btn) btn.disabled = false;
 }
 
+function pushPracticeTranscript(role, text) {
+  const clean = sanitize(text);
+  if (!clean) return;
+  practiceTranscript.push({ role, text: clean });
+}
+
+function mapSessionHistoryToPracticeTranscript() {
+  return sessionHistory
+    .filter(turn => turn?.t && (turn.r === 'you' || turn.r === 'them'))
+    .map(turn => ({
+      role: turn.r === 'you' ? 'user' : 'assistant',
+      text: sanitize(turn.t)
+    }))
+    .filter(turn => turn.text);
+}
+
+function getPracticeSessionTranscript(mode = 'text') {
+  return mode === 'voice' ? mapSessionHistoryToPracticeTranscript() : practiceTranscript.slice();
+}
+
+function formatPracticeTranscript(entries) {
+  return entries
+    .map(entry => `${entry.role === 'user' ? 'You' : 'Counterparty'}: ${entry.text}`)
+    .join('\n');
+}
+
+function getPracticeReplayHandler() {
+  if (practiceReviewContext?.mode === 'voice') return goVoicePractice;
+  return goPractice;
+}
+
+function openPracticeReviewShell(mode) {
+  practiceReviewContext = {
+    mode,
+    sceneName: getScenarioSceneName()
+  };
+  const title = document.getElementById('practiceReviewTitle');
+  const subtitle = document.getElementById('practiceReviewSubtitle');
+  const verdict = document.getElementById('practiceReviewVerdict');
+  const score = document.getElementById('practiceReviewScore');
+  const summary = document.getElementById('practiceReviewSummary');
+  const footnote = document.getElementById('practiceReviewFootnote');
+  const strengths = document.getElementById('practiceReviewStrengths');
+  const misses = document.getElementById('practiceReviewMisses');
+  const reps = document.getElementById('practiceReviewReps');
+  const replay = document.getElementById('practiceReviewReplayBtn');
+  const loading = document.getElementById('practiceReviewLoading');
+  const content = document.getElementById('practiceReviewContent');
+
+  if (title) title.textContent = practiceReviewContext.sceneName;
+  if (subtitle) subtitle.textContent = mode === 'voice' ? 'Voice Practice Review' : 'Text Practice Review';
+  if (verdict) verdict.textContent = 'Analyzing...';
+  if (score) score.textContent = '—';
+  if (summary) summary.textContent = 'Reading the session and building quick professional feedback.';
+  if (footnote) footnote.textContent = mode === 'voice' ? 'Voice practice review' : 'Text practice review';
+  if (strengths) strengths.innerHTML = '';
+  if (misses) misses.innerHTML = '';
+  if (reps) reps.innerHTML = '';
+  if (replay) replay.textContent = mode === 'voice' ? 'Run Voice Again' : 'Run Text Again';
+  if (loading) loading.style.display = 'flex';
+  if (content) content.style.display = 'none';
+  go('s-practice-review');
+}
+
+function renderPracticeReviewList(id, items) {
+  const list = document.getElementById(id);
+  if (!list) return;
+  const safeItems = Array.isArray(items) && items.length ? items : ['Not enough signal yet.'];
+  list.innerHTML = safeItems.map(item => `<li>${escapeHtml(item)}</li>`).join('');
+}
+
+function parsePracticeReview(reply) {
+  const clean = String(reply || '').trim().replace(/```json|```/g, '').trim();
+  try {
+    const parsed = JSON.parse(clean);
+    if (parsed && parsed.verdict && parsed.summary) {
+      return parsed;
+    }
+  } catch(_) {}
+  return {
+    verdict: 'Needs another rep',
+    score: '—',
+    summary: clean || 'The review could not be structured cleanly, but the session completed.',
+    strengths: [],
+    misses: [],
+    reps: []
+  };
+}
+
+async function analyzePracticeSession(mode = 'text') {
+  const entries = getPracticeSessionTranscript(mode);
+  if (entries.length < 2) {
+    toast('Not enough conversation to analyze yet');
+    if (mode === 'voice') go('s-practice');
+    return;
+  }
+
+  openPracticeReviewShell(mode);
+  try {
+    const review = parsePracticeReview(await secureAPICall([
+      {
+        role: 'system',
+        content: `You are a world-class negotiation trainer reviewing a short practice session.
+
+Return a JSON object with exactly these keys:
+{"verdict":"short title","score":"X/10","summary":"2-3 sentence professional review","strengths":["..."],"misses":["..."],"reps":["..."]}
+
+Rules:
+- Be direct and commercial.
+- Focus on leverage, clarity, pressure handling, concessions, and pacing.
+- Keep each list item to one sentence.
+- Give 3 strengths, 3 misses, and 3 reps when possible.
+- If the user handled something poorly, say it plainly.
+- No markdown. JSON only.`
+      },
+      {
+        role: 'user',
+        content: `Scenario: ${getScenarioSceneName()}\nMode: ${mode}\nDifficulty: ${PRACTICE_DIFFICULTIES[practiceDifficulty]?.label || practiceDifficulty}\nTranscript:\n${formatPracticeTranscript(entries)}`
+      }
+    ], 700, true));
+
+    const loading = document.getElementById('practiceReviewLoading');
+    const content = document.getElementById('practiceReviewContent');
+    const verdict = document.getElementById('practiceReviewVerdict');
+    const score = document.getElementById('practiceReviewScore');
+    const summary = document.getElementById('practiceReviewSummary');
+    const footnote = document.getElementById('practiceReviewFootnote');
+
+    if (loading) loading.style.display = 'none';
+    if (content) content.style.display = 'grid';
+    if (verdict) verdict.textContent = review.verdict || 'Session review';
+    if (score) score.textContent = review.score || '—';
+    if (summary) summary.textContent = review.summary || 'Review completed.';
+    if (footnote) footnote.textContent = `Reviewed with ${PROVIDERS[currentProvider]?.name || currentProvider} · ${currentModel}`;
+    renderPracticeReviewList('practiceReviewStrengths', review.strengths);
+    renderPracticeReviewList('practiceReviewMisses', review.misses);
+    renderPracticeReviewList('practiceReviewReps', review.reps);
+  } catch(err) {
+    const loading = document.getElementById('practiceReviewLoading');
+    const content = document.getElementById('practiceReviewContent');
+    const verdict = document.getElementById('practiceReviewVerdict');
+    const summary = document.getElementById('practiceReviewSummary');
+    if (loading) loading.style.display = 'none';
+    if (content) content.style.display = 'grid';
+    if (verdict) verdict.textContent = 'Review unavailable';
+    if (summary) summary.textContent = err.message || 'Could not analyze the practice session.';
+    renderPracticeReviewList('practiceReviewStrengths', []);
+    renderPracticeReviewList('practiceReviewMisses', []);
+    renderPracticeReviewList('practiceReviewReps', []);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PRACTICE MODE
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderPracticeDifficultyChips() {
-  const containers = [document.getElementById('practiceDifficultyChips'), document.getElementById('practiceDifficultySidebar')].filter(Boolean);
+  const containers = [
+    document.getElementById('practiceDifficultyChips'),
+    document.getElementById('practiceDifficultySidebar'),
+    document.getElementById('practiceDifficultyVoice'),
+    document.getElementById('practiceDifficultyVoiceSidebar')
+  ].filter(Boolean);
   containers.forEach(container => {
     container.innerHTML = '';
     Object.entries(PRACTICE_DIFFICULTIES).forEach(([id, diff]) => {
@@ -900,6 +1068,9 @@ function setPracticeDifficulty(id) {
   renderPracticeDifficultyChips();
   const hint = document.getElementById('practiceHint');
   if (hint) hint.textContent = `${PRACTICE_DIFFICULTIES[id].label}: ${PRACTICE_DIFFICULTIES[id].stance}`;
+  const voiceHint = document.getElementById('practiceVoiceHint');
+  if (voiceHint) voiceHint.textContent = `${PRACTICE_DIFFICULTIES[id].label}: ${PRACTICE_DIFFICULTIES[id].stance}`;
+  refreshRealtimeSession();
 }
 
 function appendPracticeMsg(role, text) {
@@ -982,6 +1153,7 @@ function updatePracticeFootnote() {
 function resetPractice(startOver = false) {
   resetPracticeRequestState();
   practiceHistory = [];
+  practiceTranscript = [];
   const msgs = document.getElementById('practiceMessages');
   if (msgs) msgs.innerHTML = '';
   const inp = document.getElementById('practiceInput');
@@ -1012,6 +1184,7 @@ async function kickoffPractice() {
     removePracticeTyping();
     appendPracticeMsg('ai', reply);
     practiceHistory.push({ role: 'assistant', content: reply });
+    pushPracticeTranscript('assistant', reply);
     setPracticeStatus('Respond with your opener. Keep it sharp.', 'on');
   } catch(err) {
     if (requestToken !== practiceRequestToken) return;
@@ -1029,6 +1202,7 @@ async function practiceSend() {
   inp.value = ''; inp.style.height = 'auto';
   appendPracticeMsg('user', text);
   practiceHistory.push({ role: 'user', content: text });
+  pushPracticeTranscript('user', text);
   practiceTyping = true;
   document.getElementById('practiceSendBtn').disabled = true;
   const requestToken = practiceRequestToken;
@@ -1041,6 +1215,7 @@ async function practiceSend() {
     removePracticeTyping();
     appendPracticeMsg('ai', reply);
     practiceHistory.push({ role: 'assistant', content: reply });
+    pushPracticeTranscript('assistant', reply);
     setPracticeStatus('Keep it moving — short, specific turns.', 'on');
   } catch(err) {
     if (requestToken !== practiceRequestToken) return;
@@ -1071,6 +1246,139 @@ function goPractice() {
   go('s-practice');
   resetPractice(false);
   setTimeout(kickoffPractice, 220);
+}
+
+function setVoicePracticeTitles() {
+  const sceneName = getScenarioSceneName();
+  const mobile = document.getElementById('practiceVoiceTitle');
+  const desktop = document.getElementById('practiceVoiceTitleSidebar');
+  if (mobile) mobile.textContent = sceneName;
+  if (desktop) desktop.textContent = sceneName;
+}
+
+function updateVoicePracticeFootnote() {
+  const p = PROVIDERS[currentProvider];
+  const modelLabel = p?.models?.find(m => m.id === currentModel)?.label || currentModel;
+  const el = document.getElementById('practiceVoiceFootnote');
+  if (el) el.textContent = `Voice practice · OpenAI Realtime · ${modelLabel}`;
+}
+
+function appendVoicePracticeMsg(role, text) {
+  const msgs = document.getElementById('practiceVoiceHistory');
+  if (!msgs) return;
+  const wrap = document.createElement('div');
+  wrap.className = `practice-msg ${role}`;
+  const bubble = document.createElement('div');
+  bubble.className = 'practice-bubble';
+  renderMultilineText(bubble, text);
+  wrap.appendChild(bubble);
+  msgs.appendChild(wrap);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function setVoicePracticeHeadline(text = 'Waiting for the counterparty to speak.') {
+  const el = document.getElementById('practiceVoiceHeadline');
+  if (el) el.textContent = text;
+}
+
+function setVoicePracticeTranscript(finalText = '', interimText = '') {
+  const el = document.getElementById('practiceVoiceLiveText');
+  if (!el) return;
+  el.textContent = [finalText, interimText].filter(Boolean).join(' ').trim();
+}
+
+function resetVoicePractice() {
+  realtimeMode = 'practice';
+  sessionHistory = [];
+  micActive = false;
+  liveLastAssistantLine = '';
+  liveLastAssistantAt = 0;
+  resetLiveRealtimeState();
+  const history = document.getElementById('practiceVoiceHistory');
+  if (history) history.innerHTML = '';
+  setVoicePracticeHeadline('Speak naturally. The counterparty will answer in real time.');
+  setVoicePracticeTranscript('', '');
+  updateVoicePracticeFootnote();
+  setVoicePracticeTitles();
+  renderPracticeDifficultyChips();
+  const hint = document.getElementById('practiceVoiceHint');
+  if (hint) hint.textContent = `${PRACTICE_DIFFICULTIES[practiceDifficulty]?.label || 'Neutral'}: ${PRACTICE_DIFFICULTIES[practiceDifficulty]?.stance || ''}`;
+  const btn = document.getElementById('practiceVoiceOpenBtn');
+  if (btn) btn.disabled = false;
+  setS('idle', 'Waiting for microphone...');
+}
+
+async function practiceVoiceLetThemOpen() {
+  const btn = document.getElementById('practiceVoiceOpenBtn');
+  if (btn) btn.disabled = true;
+  setS('spin', 'Generating the counterparty opener...');
+  try {
+    const reply = await secureAPICall([
+      { role: 'system', content: getPracticePrompt() },
+      { role: 'user', content: 'Give a single realistic opening line the counterparty would say to begin this negotiation. One sentence.' }
+    ], 160, false);
+    appendVoicePracticeMsg('ai', reply);
+    setVoicePracticeHeadline(reply);
+    sessionHistory.push({ r: 'them', t: reply });
+    refreshRealtimeSession();
+    noteAssistantLine(reply);
+    queueSpeech(reply);
+    setS('on', 'Your turn. Speak naturally.');
+  } catch(err) {
+    setS('idle', err.message || 'Could not generate the opener.');
+    toast(err.message || 'Could not generate opener');
+  }
+  if (btn) btn.disabled = false;
+}
+
+function goVoicePractice() {
+  if (!currentSC) { toast('Choose a scenario first'); return; }
+  ensureNegotiationDraft();
+  const values = getLiveValues();
+  if (currentSC.id === 'custom' && !values.customName && !values.anc.some(Boolean) && !values.batna && !values.zopa) {
+    toast('Fill in your custom scenario first');
+    generatedOpener = '';
+    buildPrep();
+    go('s-prep');
+    return;
+  }
+
+  const startupError = getLiveStartupError();
+  if (startupError) {
+    toast('Voice practice unavailable');
+    return;
+  }
+
+  const browserWarning = getLiveBrowserWarning();
+  if (browserWarning) toast('Best with Chrome and headphones');
+
+  stopMic();
+  resetVoicePractice();
+  earOn = true;
+  syncEarUI();
+  go('s-practice-voice');
+  setS('spin', browserWarning || 'Starting voice practice...');
+  setTimeout(startMic, 420);
+}
+
+function analyzeTextPractice() {
+  analyzePracticeSession('text');
+}
+
+function endVoicePractice() {
+  stopMic();
+  const transcript = getPracticeSessionTranscript('voice');
+  if (transcript.length < 2) {
+    go('s-practice');
+    toast('Voice practice ended');
+    return;
+  }
+  analyzePracticeSession('voice');
+}
+
+function replayPracticeReview() {
+  const handler = getPracticeReplayHandler();
+  if (typeof handler === 'function') handler();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1290,7 +1598,47 @@ function getScenarioLiveOverlay(ctx) {
 ${prompt.examples.map(example => `  - ${example}`).join('\n')}`;
 }
 
+function buildPracticeVoiceInstructions() {
+  const ctx = getRealtimeCoachContext();
+  const diff = PRACTICE_DIFFICULTIES[practiceDifficulty] || PRACTICE_DIFFICULTIES.balanced;
+  const scPrompt = LIVE_SCENARIO_PROMPTS[ctx.scenarioId] || null;
+  const roleLine = scPrompt ? scPrompt.role.replace('You are coaching', 'You are playing') : 'You are the counterparty in this negotiation.';
+  const history = sessionHistory.slice(-10).map(turn => {
+    if (turn.r === 'you') return `User: ${turn.t}`;
+    if (turn.r === 'them') return `Counterparty: ${turn.t}`;
+    return '';
+  }).filter(Boolean).join('\n');
+
+  return `You are role-playing the COUNTERPARTY in a live voice negotiation practice.
+
+${roleLine}
+Scenario: ${ctx.sceneName}
+Objective: ${scPrompt?.objective || 'Protect your side while negotiating realistically.'}
+Difficulty mode: ${diff.label} (${diff.pressure} pressure). ${diff.stance}
+User speaking style: ${ctx.style.label} — ${ctx.style.guidance}
+User high anchor: ${ctx.anc[0] || 'n/a'}
+User likely target range: ${ctx.anc[1] || 'n/a'} down to ${ctx.anc[2] || 'n/a'}
+
+Rules:
+- Stay fully in character as the counterparty.
+- Speak like a real human in a live conversation.
+- Respond in 1-3 sentences, usually under 28 words total.
+- Push back, counter, ask sharp questions, and protect your side.
+- Do not mention being an AI, simulation, or exercise.
+- Do not narrate. Do not use markdown. Do not output JSON.
+- If the user is vague, force specificity.
+- If the user gives a number, react commercially instead of stalling.
+- Keep the conversation moving. No speeches.
+- If there is no prior conversation yet, wait for the user unless they explicitly ask you to open.
+
+${getScenarioLiveOverlay(ctx)}
+${history ? `\nRecent exchange:\n${history}` : ''}`;
+}
+
 function buildRealtimeInstructions() {
+  if (realtimeMode === 'practice') {
+    return buildPracticeVoiceInstructions();
+  }
   const ctx = getRealtimeCoachContext();
   return `You are an elite real-time negotiation coach with decades of scar tissue across salary talks, procurement fights, hospital billing calls, landlord disputes, agency retainers, executive comp, and high-pressure commercial deals.
 
@@ -1380,6 +1728,11 @@ function buildLiveSessionUpdateEvent() {
       }
     }
   };
+}
+
+function refreshRealtimeSession() {
+  if (!liveDataChannel || liveDataChannel.readyState !== 'open') return;
+  liveDataChannel.send(JSON.stringify(buildLiveSessionUpdateEvent()));
 }
 
 function parseCoachPayload(text) {
@@ -1510,11 +1863,27 @@ function shouldAutoMarkSaid(transcript) {
   );
 }
 
+function noteAssistantLine(text) {
+  liveLastAssistantLine = sanitize(text);
+  liveLastAssistantAt = Date.now();
+}
+
+function shouldIgnoreAssistantEcho(transcript) {
+  if (!liveLastAssistantLine || Date.now() - liveLastAssistantAt > 12000) return false;
+  const clean = sanitize(transcript);
+  if (!clean) return false;
+  const similarity = tokenSimilarity(clean, liveLastAssistantLine);
+  const coverage = orderedCoverage(getMeaningfulTokens(clean), getMeaningfulTokens(liveLastAssistantLine));
+  return similarity >= 0.78 || coverage >= 0.84;
+}
+
 function resetLiveRealtimeState() {
   liveTranscriptDrafts = new Map();
   liveResponseBuffer = '';
   processing = false;
   liveCurrentCoach = null;
+  liveLastAssistantLine = '';
+  liveLastAssistantAt = 0;
   if (pendingSpeechTimer) {
     clearTimeout(pendingSpeechTimer);
     pendingSpeechTimer = null;
@@ -1529,7 +1898,19 @@ function handleRealtimeError(message, toastMessage = 'Live error') {
 function queueTranscriptTurn(transcript) {
   const cleanTurn = sanitize(transcript);
   if (!cleanTurn || cleanTurn.length < 4) {
-    setS('on', 'Listening...');
+    setS('on', realtimeMode === 'practice' ? 'Listening for you...' : 'Listening...');
+    return;
+  }
+
+  if (realtimeMode === 'practice') {
+    if (shouldIgnoreAssistantEcho(cleanTurn)) {
+      setS('on', 'Listening for you...');
+      return;
+    }
+    appendVoicePracticeMsg('user', cleanTurn);
+    sessionHistory.push({ r: 'you', t: cleanTurn });
+    setVoicePracticeTranscript('', '');
+    setVoicePracticeHeadline('Counterparty is responding...');
     return;
   }
 
@@ -1546,7 +1927,19 @@ function queueTranscriptTurn(transcript) {
 function finalizeRealtimeResponse() {
   if (!liveResponseBuffer.trim()) {
     processing = false;
-    setS('on', 'Listening...');
+    setS('on', realtimeMode === 'practice' ? 'Listening for you...' : 'Listening...');
+    return;
+  }
+  if (realtimeMode === 'practice') {
+    const reply = liveResponseBuffer.trim();
+    appendVoicePracticeMsg('ai', reply);
+    sessionHistory.push({ r: 'them', t: reply });
+    setVoicePracticeHeadline(reply);
+    noteAssistantLine(reply);
+    queueSpeech(reply);
+    liveResponseBuffer = '';
+    processing = false;
+    setS('on', 'Listening for you...');
     return;
   }
   const parsed = parseCoachPayload(liveResponseBuffer);
@@ -1572,7 +1965,7 @@ function handleRealtimeMessage(raw) {
       break;
     case 'session.updated':
       console.debug('[live]', event.type, event);
-      setS('on', 'Listening...');
+      setS('on', realtimeMode === 'practice' ? 'Listening for you...' : 'Listening...');
       break;
     case 'input_audio_buffer.speech_started':
       if (pendingSpeechTimer) {
@@ -1580,10 +1973,10 @@ function handleRealtimeMessage(raw) {
         pendingSpeechTimer = null;
       }
       stopSpeech();
-      setS('on', 'Hearing them...');
+      setS('on', realtimeMode === 'practice' ? 'Listening to you...' : 'Hearing them...');
       break;
     case 'input_audio_buffer.speech_stopped':
-      setS('spin', 'Transcribing...');
+      setS('spin', realtimeMode === 'practice' ? 'Transcribing your line...' : 'Transcribing...');
       processing = true;
       break;
     case 'conversation.item.input_audio_transcription.delta': {
@@ -1723,6 +2116,7 @@ Return only the line.`
 }
 
 function goLive() {
+  realtimeMode = 'coach';
   const startupError = getLiveStartupError();
   if (startupError) {
     setS('idle', startupError);
@@ -1748,6 +2142,7 @@ function goLive() {
 }
 
 function resetLive() {
+  realtimeMode = 'coach';
   sessionHistory = []; micActive = false;
   resetLiveRealtimeState();
   document.getElementById('cIdle').style.display = 'flex';
@@ -1762,6 +2157,16 @@ function resetLive() {
 // END SESSION — works for both mobile and desktop buttons
 // ─────────────────────────────────────────────────────────────────────────────
 function confirmEnd(btn) {
+  if (realtimeMode === 'practice') {
+    inlineConfirm(
+      btn || document.getElementById('practiceVoiceEndBtn'),
+      () => {
+        endVoicePractice();
+      },
+      { yesLabel: 'End', yesClass: 'danger' }
+    );
+    return;
+  }
   // Fallback: if called without a button reference, find first end-btn
   const target = btn || document.getElementById('endBtn') || document.querySelector('.end-btn');
   inlineConfirm(
@@ -1808,7 +2213,7 @@ async function startMic() {
     liveDataChannel = livePeer.createDataChannel('oai-events');
     liveDataChannel.addEventListener('open', () => {
       liveDataChannel.send(JSON.stringify(buildLiveSessionUpdateEvent()));
-      setS('spin', 'Configuring live coach...');
+      setS('spin', realtimeMode === 'practice' ? 'Configuring counterparty...' : 'Configuring live coach...');
     });
     liveDataChannel.addEventListener('message', handleRealtimeMessage);
     liveDataChannel.addEventListener('close', () => {
@@ -1850,7 +2255,7 @@ async function startMic() {
     const answerSdp = await response.text();
     await livePeer.setRemoteDescription({ type: 'answer', sdp: answerSdp });
     micActive = true;
-    setS('spin', 'Connecting to realtime coach...');
+    setS('spin', realtimeMode === 'practice' ? 'Connecting voice practice...' : 'Connecting to realtime coach...');
   } catch(err) {
     stopMic();
     handleRealtimeError(err.message || 'Could not start the realtime coach.', 'Live start failed');
@@ -1886,7 +2291,7 @@ function startVol(stream) {
     analyser = audioCtx.createAnalyser(); analyser.fftSize = 128;
     audioCtx.createMediaStreamSource(stream).connect(analyser);
     const data = new Uint8Array(analyser.frequencyBinCount);
-    const bars = document.querySelectorAll('.vb');
+    const bars = document.querySelectorAll(realtimeMode === 'practice' ? '.pvb' : '.vb');
     function tick() {
       if (!analyser) return;
       analyser.getByteFrequencyData(data);
@@ -1901,7 +2306,7 @@ function startVol(stream) {
 }
 
 function setTx(fin, int) {
-  const live = document.getElementById('tLive');
+  const live = document.getElementById(realtimeMode === 'practice' ? 'practiceVoiceLiveText' : 'tLive');
   if (!live) return;
   live.textContent = '';
   const finalSpan = document.createElement('span');
@@ -2002,6 +2407,8 @@ function syncEarUI() {
   const bl = document.getElementById('earBtnSidebarLabel');
   if (bs) bs.classList.toggle('on', on);
   if (bl) bl.textContent = on ? 'Earpiece on' : 'Earpiece off';
+  const pv = document.getElementById('practiceVoiceEarBtn');
+  if (pv) { pv.textContent = on ? 'VOICE ON' : 'VOICE OFF'; pv.classList.toggle('on', on); }
 }
 
 function toggleEar() {
@@ -2015,9 +2422,13 @@ function toggleEar() {
 // STATUS & TOAST
 // ─────────────────────────────────────────────────────────────────────────────
 function setS(state, msg) {
-  const d = document.getElementById('sDot');
+  const dotId = realtimeMode === 'practice' ? 'practiceVoiceStatusDot' : 'sDot';
+  const textId = realtimeMode === 'practice' ? 'practiceVoiceStatusText' : 'sText';
+  const d = document.getElementById(dotId);
+  const t = document.getElementById(textId);
+  if (!d || !t) return;
   d.className = 's-dot' + (state==='on'?' on':state==='spin'?' spin':'');
-  document.getElementById('sText').textContent = msg;
+  t.textContent = msg;
 }
 
 function toast(msg) {
