@@ -41,11 +41,30 @@
     <div class="launch-top">
       <div class="wordmark">Gibsel Cue</div>
       <div class="wordmark-sub"><span id="typewriterText"></span><span class="tw-cursor">|</span></div>
+      <div class="launch-intro-card">
+        <div class="launch-intro-eyebrow">Account-First Access</div>
+        <div class="launch-intro-title">Every user starts with an account now.</div>
+        <div class="launch-intro-copy">Free keeps Cue tight with saved BYOK, 3 monthly sessions, and 3 starter scenarios. Pro and Deal unlock the full product.</div>
+        <div class="launch-plan-row">
+          <div class="launch-plan-mini">
+            <span class="launch-plan-mini-name">Free</span>
+            <span class="launch-plan-mini-meta">3 sessions · 3 scenarios</span>
+          </div>
+          <div class="launch-plan-mini">
+            <span class="launch-plan-mini-name">Pro</span>
+            <span class="launch-plan-mini-meta">Full library · debriefs</span>
+          </div>
+          <div class="launch-plan-mini">
+            <span class="launch-plan-mini-name">Deal</span>
+            <span class="launch-plan-mini-meta">Strategy + custom workflow</span>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="launch-actions">
-      <button class="btn" onclick="go('s-key')">Bring Your Own Key</button>
+      <button class="btn" onclick="openAccountScreen()">Create Account</button>
       <div class="launch-secondary-row">
-        <button class="btn ghost launch-account-btn" onclick="openAccountScreen()">Sign In / Sign Up</button>
+        <button class="btn ghost launch-account-btn" onclick="setAuthMode('signin'); openAccountScreen()">Sign In</button>
         <button class="btn ghost launch-theme-btn" id="themeBtnLaunch" onclick="toggleTheme()" title="Toggle theme">&#9788;</button>
       </div>
     </div>
@@ -56,13 +75,13 @@
 <div class="screen" id="s-key">
   <div class="key-inner">
     <div class="key-back-row">
-      <div class="key-back" onclick="go('s-launch')">&#8592;</div>
-      <button class="icon-btn contact-btn" onclick="openAccountScreen()" title="Account">Sign In</button>
+      <div class="key-back" onclick="openAccountScreen()">&#8592;</div>
+      <button class="icon-btn contact-btn" onclick="openAccountScreen()" title="Account">Account</button>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
     </div>
     <div class="key-top">
-      <div class="key-title">Your API Key</div>
-      <div class="key-sub">OpenAI is live now. The other provider slots are staged for rollout.</div>
+      <div class="key-title">Your OpenAI Key</div>
+      <div class="key-sub">Cue is account-first now. Save your OpenAI key encrypted on the account, or use hosted usage if your plan includes it.</div>
 
       <div class="field-label">Provider</div>
       <div class="provider-tabs" id="providerTabs">
@@ -102,13 +121,13 @@
 
       <div class="security-badge" style="margin-top:14px;">
         <div class="security-badge-text">
-          <strong>Memory-only in this browser.</strong> Prep and chat go direct to your provider. OpenAI live sessions are proxied through Gibsel Cue to establish realtime.
+          <strong>Encrypted account storage.</strong> OpenAI keys saved here are encrypted server-side and reused across logins without exposing the raw key back to the browser.
         </div>
       </div>
       <div class="remember-key-row" id="rememberKeyWrap" hidden>
         <label class="remember-key-check" for="rememberKeyToggle">
-          <input id="rememberKeyToggle" type="checkbox"/>
-          <span>Save this OpenAI key to my account for future logins</span>
+          <input id="rememberKeyToggle" type="checkbox" checked/>
+          <span>Always save this OpenAI key to my account</span>
         </label>
         <div class="key-note" style="margin:8px 0 0;">Stored encrypted on the server. The raw key is never shown again after save.</div>
       </div>
@@ -120,10 +139,10 @@
           <button class="btn ghost" type="button" onclick="openAccountScreen()">Manage in Account</button>
         </div>
       </div>
-      <p class="key-note" id="keyNote">Prep and chat go direct to api.openai.com. OpenAI live mode is proxied through Gibsel Cue to establish Realtime.</p>
+      <p class="key-note" id="keyNote">Free uses your own OpenAI key. Pro and Deal can also use Gibsel hosted usage when it is configured on the server.</p>
     </div>
     <div>
-      <button class="btn" id="continueBtn" onclick="submitKey()">Verify &amp; Continue</button>
+      <button class="btn" id="continueBtn" onclick="submitKey()">Save Key &amp; Continue</button>
       <div class="key-verify-status" id="keyVerifyStatus"></div>
     </div>
   </div>
@@ -133,7 +152,7 @@
 <div class="screen" id="s-auth">
   <div class="key-inner auth-inner">
     <div class="key-back-row">
-      <div class="key-back" onclick="go('s-launch')">&#8592;</div>
+      <div class="key-back" onclick="go(getDefaultEntryScreen())">&#8592;</div>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
     </div>
     <div class="key-top auth-key-top">
@@ -148,7 +167,7 @@
         <div class="auth-panel" id="authSignedOut">
           <div class="auth-panel-head">
             <div class="auth-panel-title">Private Cue access</div>
-            <div class="auth-panel-sub">Sign in to save your setup, carry your key between sessions, and unlock plans later without re-entering everything.</div>
+            <div class="auth-panel-sub">Every Cue user now starts with an account. Free is BYOK with tight limits, Pro unlocks the full core app, and Deal unlocks the full workflow.</div>
           </div>
           <button class="btn ghost oauth-google-btn" type="button" onclick="beginGoogleOAuth('/#auth')">
             <span class="google-mark" aria-hidden="true">
@@ -184,7 +203,7 @@
               <strong>Cookie-backed sessions.</strong> Cue keeps account sessions on secure HTTP-only cookies instead of browser local storage.
             </div>
           </div>
-          <p class="key-note" id="authNote">Create an account first. Plan checkout and saved BYOK storage will attach to this identity.</p>
+          <p class="key-note" id="authNote">Create an account first. Saved BYOK storage, usage limits, and plan access all attach to this identity.</p>
         </div>
 
         <div class="auth-summary-card" id="authSignedIn" style="display:none;">
@@ -209,6 +228,11 @@
             <div class="auth-summary-label">Plans</div>
             <div class="auth-overview-value" id="authOverviewPlan">Free</div>
             <div class="auth-overview-sub" id="authOverviewPlanSub">Stripe billing is ready when you want managed private usage instead of pure BYOK.</div>
+          </div>
+          <div class="auth-overview-card">
+            <div class="auth-summary-label">Usage</div>
+            <div class="auth-overview-value" id="authOverviewUsage">3 left</div>
+            <div class="auth-overview-sub" id="authOverviewUsageSub">Free includes 3 sessions per month and the first 3 scenarios.</div>
           </div>
         </div>
 
@@ -236,6 +260,12 @@
             <button class="btn ghost" id="accountKeyDeleteBtn" style="display:none;" onclick="deleteAccountApiKey()">Delete Saved Key</button>
           </div>
         </div>
+        <div class="auth-section-label" id="authHistoryLabel" style="display:none;">Session History</div>
+        <div class="auth-summary-card auth-history-card" id="authHistoryCard" style="display:none;">
+          <div class="auth-summary-label" id="authHistoryTitle">Saved Session Debriefs</div>
+          <div class="auth-summary-meta" id="authHistoryMeta">Recent sessions and saved reviews appear here on eligible plans.</div>
+          <div class="auth-history-list" id="authHistoryList"></div>
+        </div>
       </div>
     </div>
     <div class="auth-actions auth-actions-card">
@@ -258,7 +288,7 @@
     </div>
     <div class="key-top plans-key-top">
       <div class="key-title">Plans</div>
-      <div class="key-sub" id="plansSubcopy">Attach managed private usage to your Cue account with Stripe checkout and self-serve billing.</div>
+      <div class="key-sub" id="plansSubcopy">Cue is account-first now: Free for BYOK, Pro for the full core product, Deal for the full negotiation workflow.</div>
       <div class="plans-content-stack">
         <div class="auth-screen-tabs">
           <button class="ptab" type="button" onclick="openAccountScreen()">Account</button>
@@ -266,11 +296,31 @@
         </div>
         <div class="plans-hero-card">
           <div class="auth-summary-label" id="plansHeroEyebrow">Private Billing</div>
-          <div class="plans-hero-title" id="plansHeroTitle">Run Cue from one signed-in account with managed private usage instead of repasting BYOK every time.</div>
-          <div class="plans-hero-copy" id="plansHeroCopy">Sign in first, then pick the plan that fits how heavily you want Cue involved before, during, and after the negotiation.</div>
+          <div class="plans-hero-title" id="plansHeroTitle">One account controls your key path, session limits, scenario access, and how much of Cue is automated.</div>
+          <div class="plans-hero-copy" id="plansHeroCopy">Free keeps Cue lightweight and BYOK. Pro opens the full main product. Deal unlocks the higher-touch AI workflow.</div>
           <div class="plans-hero-status" id="plansHeroStatus">Sign in to start subscription checkout.</div>
         </div>
         <div class="plans-grid">
+          <div class="plan-card" id="planCardFree">
+            <div class="plan-card-top">
+              <div>
+                <div class="plan-name">Free</div>
+                <div class="plan-price">$0 <span>/ month</span></div>
+              </div>
+              <div class="plan-badge" id="planBadgeFree">Default</div>
+            </div>
+            <div class="plan-desc">For people who want private account access with their own OpenAI key and a narrow monthly allowance.</div>
+            <div class="plan-inline-status" id="planStatusFree">Every account starts here unless a paid plan is attached.</div>
+            <ul class="plan-feature-list">
+              <li>Account required</li>
+              <li>BYOK stored privately</li>
+              <li>3 sessions / month</li>
+              <li>3 scenarios only</li>
+            </ul>
+            <div class="plan-card-actions">
+              <button class="btn ghost plan-card-btn" type="button" id="planBtnFree" onclick="openAccountScreen()">Current Access</button>
+            </div>
+          </div>
           <div class="plan-card" id="planCardPro">
             <div class="plan-card-top">
               <div>
@@ -279,44 +329,45 @@
               </div>
               <div class="plan-badge" id="planBadgePro">Ready</div>
             </div>
-            <div class="plan-desc">The main private account tier for people who want Cue as a regular negotiation operating system instead of a one-off tool.</div>
+            <div class="plan-desc">The main private tier for people who want Cue as a regular negotiation operating system instead of a narrow BYOK utility.</div>
             <div class="plan-inline-status" id="planStatusPro">Create or sign in to subscribe from your Cue account.</div>
             <ul class="plan-feature-list">
+              <li>Account required</li>
+              <li>BYOK or hosted key</li>
               <li>Unlimited sessions</li>
-              <li>All 13 scenarios + new drops</li>
-              <li>Session memory &amp; debrief summaries</li>
-              <li>Priority response latency</li>
+              <li>All scenarios + new drops</li>
+              <li>Session history &amp; debriefs</li>
               <li>Early access to new features</li>
             </ul>
             <div class="plan-card-actions">
               <button class="btn plan-card-btn" type="button" id="planBtnPro" onclick="startPlanCheckout('pro')">Choose Pro</button>
             </div>
           </div>
-          <div class="plan-card featured" id="planCardExotic">
+          <div class="plan-card featured" id="planCardDeal">
             <div class="plan-card-top">
               <div>
-                <div class="plan-name">Exotic</div>
+                <div class="plan-name">Deal</div>
                 <div class="plan-price">$99 <span>/ month</span></div>
               </div>
-              <div class="plan-badge" id="planBadgeExotic">Premium</div>
+              <div class="plan-badge" id="planBadgeDeal">Premium</div>
             </div>
-            <div class="plan-desc">For heavier users who want more of Cue handled for them before, during, and after the negotiation itself.</div>
-            <div class="plan-inline-status" id="planStatusExotic">Use the same Cue account and move up when you want a heavier private setup.</div>
+            <div class="plan-desc">For heavier users who want Cue to do more of the work before, during, and after the negotiation itself.</div>
+            <div class="plan-inline-status" id="planStatusDeal">Use the same Cue account and move up when you want the full automated workflow.</div>
             <ul class="plan-feature-list">
               <li>Everything in Pro</li>
-              <li>Pre-negotiation strategy builder (AI-generated brief)</li>
-              <li>Post-session win/loss analysis</li>
+              <li>Pre-negotiation strategy brief</li>
+              <li>Win/loss analysis</li>
               <li>Custom scenario creation</li>
               <li>Dedicated support</li>
             </ul>
             <div class="plan-card-actions">
-              <button class="btn plan-card-btn" type="button" id="planBtnExotic" onclick="startPlanCheckout('exotic')">Choose Exotic</button>
+              <button class="btn plan-card-btn" type="button" id="planBtnDeal" onclick="startPlanCheckout('deal')">Choose Deal</button>
             </div>
           </div>
         </div>
         <div class="plans-note-card">
           <div class="auth-summary-label">How Access Works</div>
-          <div class="plans-note-copy" id="plansNoteCopy">Free accounts still unlock the full scenario library. Paid plans are for people who want managed private usage and deeper Cue support attached to one account.</div>
+          <div class="plans-note-copy" id="plansNoteCopy">Free is narrow on purpose. Pro unlocks the main app cleanly. Deal unlocks the AI brief builder, custom scenarios, and deeper post-session analysis.</div>
         </div>
       </div>
     </div>
@@ -347,7 +398,7 @@
       </button>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
-      <button class="icon-btn" onclick="changeKey()" title="Change API key">&#8644;</button>
+      <button class="icon-btn" onclick="changeKey()" title="Manage saved key">&#8644;</button>
       <button class="icon-btn" onclick="goChat()" title="AI Chat" id="chatIconBtn">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M14 1H2C1.44772 1 1 1.44772 1 2V10C1 10.5523 1.44772 11 2 11H5V14.5L9.5 11H14C14.5523 11 15 10.5523 15 10V2C15 1.44772 14.5523 1 14 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -360,10 +411,10 @@
     <div class="section-label">Scenario</div>
     <div class="home-access-banner" id="homeAccessBanner" hidden>
       <div class="home-access-banner-copy">
-        <div class="home-access-banner-title">First five scenarios are open in BYOK mode.</div>
-        <div class="home-access-banner-sub">Create a free account to unlock the full negotiation library and keep your setup synced.</div>
+        <div class="home-access-banner-title" id="homeAccessBannerTitle">Free account: 3 scenarios and 3 sessions each month.</div>
+        <div class="home-access-banner-sub" id="homeAccessBannerSub">Upgrade when you want the full library, debriefs, and the higher-touch workflow.</div>
       </div>
-      <button class="home-access-banner-btn" type="button" onclick="openAccountScreen()">Unlock All</button>
+      <button class="home-access-banner-btn" type="button" id="homeAccessBannerBtn" onclick="openPlansScreen()">Upgrade Plan</button>
     </div>
     <div class="card-list" id="cardList"></div>
     <div class="home-cta">
@@ -556,6 +607,7 @@
     <div class="practice-review-hero">
       <div class="practice-review-score" id="practiceReviewScore">—</div>
       <div class="practice-review-verdict" id="practiceReviewVerdict">Analyzing...</div>
+      <div class="practice-review-outcome" id="practiceReviewOutcome" style="display:none;">Win / Neutral / Loss</div>
       <div class="practice-review-summary" id="practiceReviewSummary">Reading the session and building quick professional feedback.</div>
     </div>
 
@@ -678,7 +730,7 @@
       </button>
       <button class="chat-bot-nav-item" data-bot="advisor" onclick="switchBot('advisor',this)">
         <span class="chat-bot-nav-name">Scenario Advisor</span>
-        <span class="chat-bot-nav-sub">Build your prep brief</span>
+        <span class="chat-bot-nav-sub">Deal · Build your prep brief</span>
       </button>
       <button class="chat-bot-nav-item" data-bot="intel" onclick="switchBot('intel',this)">
         <span class="chat-bot-nav-name">Intel Chat</span>
@@ -715,7 +767,7 @@
         </div>
         <div class="chat-bot-card-text">
           <div class="chat-bot-card-name">Scenario Advisor</div>
-          <div class="chat-bot-card-desc">Describe your situation. It interviews you, picks the right scenario, and fills your prep brief automatically.</div>
+          <div class="chat-bot-card-desc">Deal plan. Describe your situation and it builds the prep brief automatically.</div>
         </div>
         <div class="chat-bot-card-arr">&#8250;</div>
       </button>

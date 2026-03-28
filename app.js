@@ -208,11 +208,11 @@ async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
   if (!p) throw new Error('Unknown provider.');
   if (!p.supported) throw new Error(`${p.name} support is coming soon. Use OpenAI for now.`);
   if (!key) {
-    if (currentProvider === 'openai' && accountHasSavedOpenAIKey()) {
+    if (currentProvider === 'openai' && authState.authenticated && (accountHasSavedOpenAIKey() || featureEnabled('hostedKeyAvailable'))) {
       RateLimit.record();
       return proxySavedOpenAIChat(messages, maxTokens, jsonMode);
     }
-    throw new Error('No API key — reload and enter your key.');
+    throw new Error(authState.authenticated ? 'Add a saved OpenAI key or use a plan with hosted key access.' : 'Sign in first.');
   }
   let systemContent = null, userMessages = messages;
   if (messages.length && messages[0].role === 'system') {
@@ -382,7 +382,11 @@ const LIBRARY = [
     batna:'',
     zopa:'' }
 ];
-const FREE_SCENARIO_IDS = new Set(['salary', 'rent', 'car', 'freelance', 'joboffer']);
+const FREE_SCENARIO_IDS = new Set(['salary', 'rent', 'car']);
+const PRO_SCENARIO_IDS = new Set([
+  'salary', 'rent', 'car', 'freelance', 'joboffer', 'biz', 'severance', 'medical',
+  'realestate', 'equity', 'agency', 'raise'
+]);
 
 const LIVE_SCENARIO_PROMPTS = {
   salary: {
@@ -554,6 +558,7 @@ let liveLastAssistantLine = '';
 let liveLastAssistantAt = 0;
 let practiceReviewState = null;
 let liveRealtimeModel = 'gpt-realtime';
+let activeRunId = '';
 let authMode = 'signin';
 let authState = {
   configured: false,
@@ -665,18 +670,22 @@ function syncSelectedScenarioCard() {
     const gate = card.querySelector('.sc-gate');
     const lockCopy = card.querySelector('.sc-lock-copy');
     const affordance = card.querySelector('.sc-arr');
-    if (gate) gate.hidden = !locked;
-    if (lockCopy) lockCopy.hidden = !locked;
+    if (gate) {
+      gate.hidden = !locked;
+      gate.textContent = getScenarioRequiredPlanLabel(scenario);
+    }
+    if (lockCopy) {
+      lockCopy.hidden = !locked;
+      lockCopy.textContent = `${getScenarioRequiredPlanLabel(scenario)} plan required for ${scenario?.name || 'this scenario'}.`;
+    }
     if (affordance) affordance.innerHTML = locked ? '' : '&#8250;';
   });
 }
 
-function scenarioNeedsAccount(sc) {
-  return !!sc && !FREE_SCENARIO_IDS.has(sc.id);
-}
-
 function isScenarioLocked(sc) {
-  return scenarioNeedsAccount(sc) && !authState.authenticated;
+  if (!sc?.id) return true;
+  if (!authState.authenticated) return true;
+  return !getAccessState().allowedScenarioIds.includes(sc.id);
 }
 
 function enforceScenarioAccess() {
@@ -689,19 +698,45 @@ function enforceScenarioAccess() {
 
 function renderScenarioAccessState() {
   const banner = document.getElementById('homeAccessBanner');
-  if (banner) banner.hidden = authState.authenticated;
+  const bannerTitle = document.getElementById('homeAccessBannerTitle');
+  const bannerSub = document.getElementById('homeAccessBannerSub');
+  const bannerBtn = document.getElementById('homeAccessBannerBtn');
+  const access = getAccessState();
+  if (banner) banner.hidden = !authState.authenticated;
+  if (bannerTitle) {
+    bannerTitle.textContent = access.planCode === 'free'
+      ? 'Free account: 3 scenarios and 3 sessions each month.'
+      : access.planCode === 'deal'
+        ? 'Deal account: every Cue feature unlocked.'
+        : 'Pro account: full scenario library with debriefs and unlimited sessions.';
+  }
+  if (bannerSub) {
+    if (access.planCode === 'free') {
+      const sessionsLeft = access.sessionsRemaining ?? 0;
+      bannerSub.textContent = `${sessionsLeft} session${sessionsLeft === 1 ? '' : 's'} left this month. Save your key once, then upgrade for the full library and unlimited usage.`;
+    } else if (access.planCode === 'deal') {
+      bannerSub.textContent = 'AI brief builder, custom scenarios, and win/loss analysis are live on this account.';
+    } else {
+      bannerSub.textContent = 'Full standard library, debriefs, and unlimited sessions are active. Upgrade to Deal for custom scenarios and strategy brief automation.';
+    }
+  }
+  if (bannerBtn) {
+    bannerBtn.textContent = access.planCode === 'free' ? 'Upgrade Plan' : access.planCode === 'pro' ? 'See Deal' : 'Manage Plan';
+    bannerBtn.onclick = () => openPlansScreen();
+  }
   enforceScenarioAccess();
   syncSelectedScenarioCard();
 }
 
 async function promptScenarioAccess(sc) {
   const name = sc?.name || 'this scenario';
+  const requiredPlan = getScenarioRequiredPlanLabel(sc);
   const confirmed = await showModal({
-    title: 'Unlock the full library',
-    body: `${name} is available once you create a Cue account. Your first five BYOK scenarios stay open, and the rest unlock when you sign in.`,
-    confirmText: 'Open Account'
+    title: `${requiredPlan} required`,
+    body: `${name} is part of the ${requiredPlan} plan. Upgrade this account to use it.`,
+    confirmText: 'See Plans'
   });
-  if (confirmed) openAccountScreen();
+  if (confirmed) openPlansScreen();
 }
 
 function buildSessionSnapshot() {
@@ -906,19 +941,6 @@ function accountHasSavedOpenAIKey() {
   return authState.authenticated && authState.account?.savedKey?.provider === 'openai';
 }
 
-function hasAppAccessCredential() {
-  return SecureStore.has() || accountHasSavedOpenAIKey();
-}
-
-function getSignedInDefaultScreen() {
-  return hasAppAccessCredential() ? 's-home' : 's-key';
-}
-
-function getDefaultEntryScreen() {
-  if (authState.authenticated) return getSignedInDefaultScreen();
-  return hasAppAccessCredential() ? 's-home' : 's-launch';
-}
-
 function getAuthDisplayCopy() {
   const displayName = String(authState.account?.displayName || authState.user?.displayName || '').trim();
   if (displayName) return displayName;
@@ -937,6 +959,67 @@ function getBillingState() {
     canManage: false,
     isPaid: false
   };
+}
+
+function getAccessState() {
+  return authState.account?.access || {
+    planCode: 'free',
+    planLabel: 'Free',
+    sessionLimit: 3,
+    sessionsUsedThisMonth: 0,
+    sessionsRemaining: 3,
+    allowedScenarioIds: [...FREE_SCENARIO_IDS],
+    features: {
+      byok: true,
+      hostedKey: false,
+      fullLibrary: false,
+      sessionHistory: false,
+      debriefs: false,
+      strategyBrief: false,
+      customScenarios: false,
+      winLossAnalysis: false,
+      earlyAccess: false,
+      dedicatedSupport: false,
+      hostedKeyEligible: false,
+      hostedKeyAvailable: false
+    },
+    canStartSession: true,
+    requiresSavedKey: true,
+    hasSavedKey: false
+  };
+}
+
+function hasAppAccessCredential() {
+  const access = getAccessState();
+  return authState.authenticated && (SecureStore.has() || accountHasSavedOpenAIKey() || access.features.hostedKeyAvailable);
+}
+
+function getSignedInDefaultScreen() {
+  return hasAppAccessCredential() ? 's-home' : 's-key';
+}
+
+function getDefaultEntryScreen() {
+  return authState.authenticated ? getSignedInDefaultScreen() : 's-launch';
+}
+
+function getScenarioRequiredPlan(sc) {
+  if (!sc?.id) return 'free';
+  if (sc.id === 'custom') return 'deal';
+  if (FREE_SCENARIO_IDS.has(sc.id)) return 'free';
+  return 'pro';
+}
+
+function getScenarioRequiredPlanLabel(sc) {
+  const required = getScenarioRequiredPlan(sc);
+  return required === 'deal' ? 'Deal' : required === 'pro' ? 'Pro' : 'Free';
+}
+
+function featureEnabled(feature) {
+  return !!getAccessState().features?.[feature];
+}
+
+function canStartAnySession() {
+  return !!getAccessState().canStartSession;
 }
 
 function formatBillingStatusLabel(status) {
@@ -967,7 +1050,7 @@ function setPlansStatus(message = '', kind = '') {
 }
 
 function setPlanButtonsDisabled(disabled) {
-  ['planBtnPro', 'planBtnExotic', 'plansManageBtn', 'plansRefreshBtn'].forEach(id => {
+  ['planBtnFree', 'planBtnPro', 'planBtnDeal', 'plansManageBtn', 'plansRefreshBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = !!disabled;
   });
@@ -980,23 +1063,83 @@ function formatSavedKeyTimestamp(value) {
   return `Saved ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}.`;
 }
 
+function formatRunModeLabel(mode) {
+  if (mode === 'live') return 'Live';
+  if (mode === 'practice_voice') return 'Voice Practice';
+  return 'Text Practice';
+}
+
+function renderAccountHistory() {
+  const card = document.getElementById('authHistoryCard');
+  const label = document.getElementById('authHistoryLabel');
+  const title = document.getElementById('authHistoryTitle');
+  const meta = document.getElementById('authHistoryMeta');
+  const list = document.getElementById('authHistoryList');
+  if (!card || !label || !title || !meta || !list) return;
+  const history = authState.account?.history || { available: false, entries: [] };
+  const access = getAccessState();
+  const visible = authState.authenticated;
+  label.style.display = visible ? 'block' : 'none';
+  card.style.display = visible ? 'block' : 'none';
+
+  if (!history.available) {
+    title.textContent = 'Saved Session Debriefs';
+    meta.textContent = 'Free keeps things lean. Upgrade to Pro to save debriefs and session history on your account.';
+    list.innerHTML = `
+      <div class="auth-history-entry locked">
+        <div class="auth-history-entry-top">
+          <div class="auth-history-entry-title">Pro unlocks saved reviews</div>
+          <div class="auth-history-entry-chip">Pro</div>
+        </div>
+        <div class="auth-history-entry-sub">Session history and debrief summaries appear here once this account moves onto Pro or Deal.</div>
+      </div>`;
+    return;
+  }
+
+  title.textContent = access.planCode === 'deal' ? 'Saved Session Analysis' : 'Saved Session Debriefs';
+  meta.textContent = 'Recent practice and live sessions saved on this account.';
+  const entries = Array.isArray(history.entries) ? history.entries : [];
+  if (!entries.length) {
+    list.innerHTML = `
+      <div class="auth-history-entry">
+        <div class="auth-history-entry-title">No saved sessions yet</div>
+        <div class="auth-history-entry-sub">Complete a practice or live session review and it will land here.</div>
+      </div>`;
+    return;
+  }
+  list.innerHTML = entries.map(entry => `
+    <div class="auth-history-entry">
+      <div class="auth-history-entry-top">
+        <div class="auth-history-entry-title">${escapeHtml(entry.scenarioName || 'Session')}</div>
+        <div class="auth-history-entry-chip">${escapeHtml(formatRunModeLabel(entry.mode))}</div>
+      </div>
+      <div class="auth-history-entry-sub">${escapeHtml(entry.verdict || entry.summary || 'Completed session')} ${entry.score ? `· ${escapeHtml(entry.score)}` : ''}</div>
+      <div class="auth-history-entry-meta">${escapeHtml(formatBillingPeriodEnd(entry.createdAt) || '')}${entry.outcome ? ` · ${escapeHtml(entry.outcome.toUpperCase())}` : ''}</div>
+    </div>`).join('');
+}
+
 function syncSavedKeyUI() {
   const rememberWrap = document.getElementById('rememberKeyWrap');
   const rememberToggle = document.getElementById('rememberKeyToggle');
   const savedCard = document.getElementById('savedAccountKeyCard');
   const savedStatus = document.getElementById('savedAccountKeyStatus');
   const continueBtn = document.getElementById('savedAccountKeyContinueBtn');
-  const canRemember = authState.authenticated && currentProvider === 'openai' && isProviderSupported(currentProvider);
-  const canUseSavedOnScreen = canRemember && accountHasSavedOpenAIKey();
+  const access = getAccessState();
+  const canUseSavedOnScreen = authState.authenticated && currentProvider === 'openai' && (accountHasSavedOpenAIKey() || access.features.hostedKeyAvailable);
 
-  if (rememberWrap) rememberWrap.hidden = !canRemember;
-  if (!canRemember && rememberToggle) rememberToggle.checked = false;
+  if (rememberWrap) rememberWrap.hidden = true;
+  if (rememberToggle) rememberToggle.checked = true;
 
   if (savedCard) savedCard.hidden = !canUseSavedOnScreen;
   if (savedStatus && canUseSavedOnScreen) {
-    savedStatus.textContent = `Saved OpenAI key ending in ${authState.account.savedKey.last4}. ${formatSavedKeyTimestamp(authState.account.savedKey.updatedAt)}`;
+    savedStatus.textContent = accountHasSavedOpenAIKey()
+      ? `Saved OpenAI key ending in ${authState.account.savedKey.last4}. ${formatSavedKeyTimestamp(authState.account.savedKey.updatedAt)}`
+      : 'This plan can use Gibsel hosted OpenAI usage. You can still save your own key if you prefer BYOK.';
   }
-  if (continueBtn) continueBtn.style.display = canUseSavedOnScreen ? 'block' : 'none';
+  if (continueBtn) {
+    continueBtn.style.display = canUseSavedOnScreen ? 'block' : 'none';
+    continueBtn.textContent = accountHasSavedOpenAIKey() ? 'Continue with Saved Key' : 'Continue with Hosted Key';
+  }
 }
 
 function renderAuthState() {
@@ -1007,6 +1150,8 @@ function renderAuthState() {
   const overviewKey = document.getElementById('authOverviewKey');
   const overviewPlan = document.getElementById('authOverviewPlan');
   const overviewPlanSub = document.getElementById('authOverviewPlanSub');
+  const overviewUsage = document.getElementById('authOverviewUsage');
+  const overviewUsageSub = document.getElementById('authOverviewUsageSub');
   const nameRow = document.getElementById('authNameRow');
   const primaryBtn = document.getElementById('authPrimaryBtn');
   const secondaryBtn = document.getElementById('authSecondaryBtn');
@@ -1024,6 +1169,7 @@ function renderAuthState() {
   const keyState = document.getElementById('accountKeyState');
   const keyDeleteBtn = document.getElementById('accountKeyDeleteBtn');
   const billing = getBillingState();
+  const access = getAccessState();
   const accountButtons = [
     document.getElementById('accountHomeBtn')
   ].filter(Boolean);
@@ -1047,13 +1193,13 @@ function renderAuthState() {
 
   if (subcopy) {
     subcopy.textContent = authState.authenticated
-      ? 'Your Cue identity is active. Private keys can live here securely and follow you across logins.'
-      : 'Secure sign-in for Cue. Billing and saved API keys will live here.';
+      ? `${access.planLabel} account active. Keys, usage, and plan entitlements follow this login across devices.`
+      : 'Secure sign-in for Cue. Accounts are now required for Free, Pro, and Deal.';
   }
   if (note) {
     note.textContent = authMode === 'signin'
-      ? 'Sign in to your Cue account. Saved personal keys and Stripe billing stay attached to this identity.'
-      : 'Create your Cue account first. Saved BYOK storage and Stripe billing will attach to this identity.';
+      ? 'Sign in to your Cue account. Saved BYOK storage, monthly usage, and Stripe billing stay attached to this identity.'
+      : 'Create your Cue account first. Free, Pro, and Deal all attach to this identity.';
   }
 
   if (primaryBtn) {
@@ -1073,9 +1219,9 @@ function renderAuthState() {
       summaryMeta.textContent = 'Checking account status...';
     } else if (billing.isPaid) {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
-      summaryMeta.textContent = `${billing.planName} plan ${formatBillingStatusLabel(billing.planStatus).toLowerCase()}${renewal ? ` through ${renewal}` : ''}.`;
+      summaryMeta.textContent = `${billing.planName} plan ${formatBillingStatusLabel(billing.planStatus).toLowerCase()}${renewal ? ` through ${renewal}` : ''}. ${access.features.hostedKeyAvailable ? 'Hosted key usage is available.' : 'BYOK still works here too.'}`;
     } else if (authState.user?.emailConfirmedAt) {
-      summaryMeta.textContent = 'Email verified. Account session is active.';
+      summaryMeta.textContent = `Email verified. Free plan active. ${access.sessionsRemaining ?? 0} session${access.sessionsRemaining === 1 ? '' : 's'} left this month.`;
     } else {
       summaryMeta.textContent = 'Email not verified yet. Check your inbox, then sign in again once confirmed.';
     }
@@ -1084,7 +1230,9 @@ function renderAuthState() {
   if (overviewKey) {
     overviewKey.textContent = accountHasSavedOpenAIKey()
       ? `•••• ${authState.account.savedKey.last4}`
-      : 'No saved key yet';
+      : access.features.hostedKeyAvailable
+        ? 'Hosted Key'
+        : 'No saved key yet';
   }
   if (overviewPlan) {
     overviewPlan.textContent = billing.isPaid ? billing.planName : 'Free';
@@ -1094,16 +1242,29 @@ function renderAuthState() {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
       overviewPlanSub.textContent = `${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}. Manage it from the Plans tab whenever you need to change or cancel.`;
     } else {
-      overviewPlanSub.textContent = 'Stripe billing is ready when you want managed private usage attached to this account instead of pure BYOK.';
+      overviewPlanSub.textContent = 'Free keeps Cue narrow on purpose: BYOK, 3 sessions per month, and the first 3 scenarios.';
     }
+  }
+  if (overviewUsage) {
+    overviewUsage.textContent = access.sessionLimit === null
+      ? 'Unlimited'
+      : `${access.sessionsRemaining ?? 0} left`;
+  }
+  if (overviewUsageSub) {
+    overviewUsageSub.textContent = access.sessionLimit === null
+      ? `${access.planLabel} includes unlimited sessions this month.`
+      : `${access.sessionsUsedThisMonth || 0} of ${access.sessionLimit} monthly sessions used.`;
   }
   if (keyState) {
     keyState.textContent = accountHasSavedOpenAIKey()
       ? `OpenAI key ending in ${authState.account.savedKey.last4}. ${formatSavedKeyTimestamp(authState.account.savedKey.updatedAt)}`
-      : 'No saved OpenAI key on this account yet.';
+      : access.features.hostedKeyAvailable
+        ? 'No personal BYOK saved. This plan can use Gibsel hosted OpenAI usage.'
+        : 'No saved OpenAI key on this account yet.';
   }
   if (keyDeleteBtn) keyDeleteBtn.style.display = accountHasSavedOpenAIKey() ? 'block' : 'none';
   syncSavedKeyUI();
+  renderAccountHistory();
   renderScenarioAccessState();
 }
 
@@ -1121,33 +1282,38 @@ function openAccountScreen() {
 
 function renderPlansState() {
   const billing = getBillingState();
+  const access = getAccessState();
   const subcopy = document.getElementById('plansSubcopy');
   const heroTitle = document.getElementById('plansHeroTitle');
   const heroCopy = document.getElementById('plansHeroCopy');
   const heroStatus = document.getElementById('plansHeroStatus');
   const noteCopy = document.getElementById('plansNoteCopy');
   const manageBtn = document.getElementById('plansManageBtn');
+  const freeBadge = document.getElementById('planBadgeFree');
+  const freeStatus = document.getElementById('planStatusFree');
+  const freeButton = document.getElementById('planBtnFree');
+  const freeCard = document.getElementById('planCardFree');
   const planDefinitions = [
     { code: 'pro', label: 'Pro', badgeEl: 'planBadgePro', statusEl: 'planStatusPro', btnEl: 'planBtnPro', cardEl: 'planCardPro' },
-    { code: 'exotic', label: 'Exotic', badgeEl: 'planBadgeExotic', statusEl: 'planStatusExotic', btnEl: 'planBtnExotic', cardEl: 'planCardExotic' }
+    { code: 'deal', label: 'Deal', badgeEl: 'planBadgeDeal', statusEl: 'planStatusDeal', btnEl: 'planBtnDeal', cardEl: 'planCardDeal' }
   ];
   if (subcopy) {
     subcopy.textContent = authState.authenticated
-      ? 'Billing lives directly on your Cue account now. Pick a plan or manage the one already attached to this identity.'
-      : 'Plans attach to a signed-in Cue account. BYOK-only visitors stay on the free path until they create one.';
+      ? 'One signed-in account now controls key storage, session limits, scenario access, and every paid upgrade.'
+      : 'Create an account first, then choose the plan that matches how much of Cue you want unlocked.';
   }
   if (heroTitle) {
     heroTitle.textContent = authState.authenticated
       ? billing.isPaid
         ? `${billing.planName} is attached to this Cue account.`
-        : 'Choose the private setup you want attached to this Cue account.'
-      : 'Run Cue from one signed-in account with managed private usage instead of repasting BYOK every time.';
+        : 'Free is active on this account right now.'
+      : 'One account controls your key path, session limits, scenario access, and how much of Cue is automated.';
   }
   if (heroCopy) {
     heroCopy.textContent = authState.authenticated
       ? billing.isPaid
-        ? 'Billing, renewals, and future plan changes stay tied to your account without changing how the rest of Cue works.'
-        : 'Free account access still unlocks the full scenario library. Paid plans are for heavier private usage and more Cue-managed support.'
+        ? 'Billing, renewals, and future plan changes stay tied to this identity without changing how the rest of Cue works.'
+        : 'Free keeps Cue intentionally narrow: saved BYOK, 3 sessions per month, and the first 3 scenarios.'
       : 'Sign in first, then subscribe from the same account you will use inside Cue.';
   }
   if (heroStatus) {
@@ -1157,15 +1323,27 @@ function renderPlansState() {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
       heroStatus.textContent = `${billing.planName} • ${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}`;
     } else {
-      heroStatus.textContent = 'Free account active. Subscribe when you want managed private usage.';
+      heroStatus.textContent = `${access.sessionsRemaining ?? 0} free session${access.sessionsRemaining === 1 ? '' : 's'} left this month.`;
     }
   }
   if (noteCopy) {
     noteCopy.textContent = billing.isPaid
       ? 'Your account already has managed billing attached. Use the portal for card updates, invoice history, cancellations, or plan changes.'
-      : 'Free accounts still unlock the full scenario library. Paid plans are for people who want managed private usage and deeper Cue support attached to one account.';
+      : 'Free is narrow on purpose. Pro unlocks the main app cleanly. Deal unlocks the AI brief builder, custom scenarios, and deeper post-session analysis.';
   }
   if (manageBtn) manageBtn.style.display = authState.authenticated && billing.canManage ? 'block' : 'none';
+  if (freeBadge) freeBadge.textContent = billing.isPaid ? 'Available' : 'Current Plan';
+  if (freeStatus) {
+    freeStatus.textContent = authState.authenticated
+      ? access.sessionLimit === null
+        ? 'This account is currently on a paid plan.'
+        : `${access.sessionsUsedThisMonth || 0} of ${access.sessionLimit} monthly sessions used.`
+      : 'Every account starts here unless a paid plan is attached.';
+  }
+  if (freeButton) {
+    freeButton.textContent = authState.authenticated ? (billing.isPaid ? 'Back to Account' : 'Current Access') : 'Create Account';
+  }
+  if (freeCard) freeCard.classList.toggle('current-plan', !billing.isPaid);
 
   planDefinitions.forEach(plan => {
     const badge = document.getElementById(plan.badgeEl);
@@ -1178,7 +1356,7 @@ function renderPlansState() {
     if (badge) {
       badge.textContent = currentPlan
         ? 'Current Plan'
-        : switching && plan.code === 'exotic'
+        : switching && plan.code === 'deal'
           ? 'Upgrade'
           : authState.authenticated
             ? 'Ready'
@@ -1291,11 +1469,11 @@ function beginGoogleOAuth(next = '/#auth') {
 }
 
 function continueFromAccount() {
-  go(hasAppAccessCredential() ? 's-home' : 's-key');
+  go(getSignedInDefaultScreen());
 }
 
 function continueWithSavedAccountKey() {
-  if (!accountHasSavedOpenAIKey()) return;
+  if (!accountHasSavedOpenAIKey() && !featureEnabled('hostedKeyAvailable')) return;
   applyProviderSelection('openai', currentModel);
   go('s-home');
 }
@@ -1334,6 +1512,70 @@ async function authRequest(path, options = {}) {
   return data;
 }
 
+async function startTrackedSession(mode) {
+  if (!authState.authenticated) {
+    setAuthMode('signin');
+    openAccountScreen();
+    throw new Error('Sign in first.');
+  }
+  if (!canStartAnySession()) {
+    openPlansScreen();
+    throw new Error(`Free includes ${getAccessState().sessionLimit} sessions per month. Upgrade to Pro for unlimited sessions.`);
+  }
+  if (activeRunId) {
+    await completeTrackedSession(null);
+  }
+  const scenarioName = getScenarioSceneName();
+  const data = await authRequest('/api/runs/start', {
+    body: {
+      mode,
+      scenarioId: currentSC?.id || '',
+      scenarioName
+    }
+  });
+  activeRunId = String(data?.runId || '').trim();
+  if (data?.account) {
+    authState.account = data.account;
+    renderAuthState();
+    renderPlansState();
+  }
+  return activeRunId;
+}
+
+async function completeTrackedSession(review = null) {
+  if (!authState.authenticated || !activeRunId) return;
+  try {
+    const data = await authRequest('/api/runs/complete', {
+      body: {
+        runId: activeRunId,
+        review: review || undefined
+      }
+    });
+    if (data?.account) {
+      authState.account = data.account;
+      renderAuthState();
+      renderPlansState();
+    }
+  } catch (_) {
+  } finally {
+    activeRunId = '';
+  }
+}
+
+async function requirePlanFeature(feature, config = {}) {
+  if (!featureEnabled(feature)) {
+    const planLabel = config.planLabel || (feature === 'strategyBrief' || feature === 'customScenarios' || feature === 'winLossAnalysis' ? 'Deal' : 'Pro');
+    const confirmed = await showModal({
+      title: `${planLabel} feature`,
+      body: config.body || `${config.name || 'This feature'} is part of the ${planLabel} plan.`,
+      confirmText: 'See Plans'
+    });
+    if (confirmed) openPlansScreen();
+    return false;
+  }
+  return true;
+}
+
 async function refreshAuthState({ silent = false } = {}) {
   if (!silent) setAuthStatus('Checking session…', 'spin');
   try {
@@ -1364,6 +1606,11 @@ async function refreshAuthState({ silent = false } = {}) {
   renderPlansState();
   if (!isRestoringSession && authState.authenticated && getActiveScreenId() === 's-launch') {
     go(getSignedInDefaultScreen(), { replaceHash: true });
+  } else if (!isRestoringSession && authState.authenticated && !hasAppAccessCredential()) {
+    const active = getActiveScreenId();
+    if (!['s-auth', 's-plans', 's-key'].includes(active)) {
+      go('s-key', { replaceHash: true });
+    }
   }
 }
 
@@ -1409,6 +1656,8 @@ async function signOutAccount() {
   setAuthStatus('Signing out…', 'spin');
   try {
     await authRequest('/api/auth/signout', { body: {} });
+    SecureStore.clear();
+    activeRunId = '';
     authState = {
       configured: authState.configured,
       checked: true,
@@ -1531,8 +1780,8 @@ function changeKey() {
   document.getElementById('keyVerifyStatus').textContent = '';
   document.getElementById('keyVerifyStatus').className = 'key-verify-status';
   document.getElementById('continueBtn').disabled = false;
-  document.getElementById('continueBtn').textContent = 'Verify & Continue';
-  go('s-key');
+  document.getElementById('continueBtn').textContent = 'Save Key & Continue';
+  go(authState.authenticated ? 's-key' : 's-auth');
 }
 
 function updateModelSelect(provider) {
@@ -1559,7 +1808,7 @@ function getProviderNote(provider) {
     return `${p.name} support is coming soon. Use OpenAI for now.`;
   }
   if (provider === 'openai') {
-    return 'Prep and chat go directly to api.openai.com. OpenAI live mode is proxied through Gibsel Cue to establish Realtime.';
+    return 'Save your OpenAI key to the account for private BYOK access. On eligible plans, Gibsel can also use a hosted key when the server is configured for it.';
   }
   return `${p.note} OpenAI live mode is still proxied through Gibsel Cue to establish Realtime.`;
 }
@@ -1571,7 +1820,7 @@ function isProviderSupported(provider) {
 function applyProviderSelection(provider, preferredModel = '') {
   const nextProvider = PROVIDERS[provider] ? provider : 'openai';
   currentProvider = nextProvider;
-  document.querySelectorAll('.ptab').forEach(tab => {
+  document.querySelectorAll('#providerTabs .ptab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.provider === nextProvider);
   });
   document.getElementById('keyNote').textContent = getProviderNote(nextProvider);
@@ -1629,7 +1878,7 @@ function syncProviderAccessState(provider) {
   }
   if (continueBtn) {
     continueBtn.disabled = !supported;
-    continueBtn.textContent = supported ? 'Verify & Continue' : `${p.name} Coming Soon`;
+    continueBtn.textContent = supported ? 'Save Key & Continue' : `${p.name} Coming Soon`;
   }
 }
 
@@ -1637,7 +1886,7 @@ function syncProviderAccessState(provider) {
 // PROVIDER TABS
 // ─────────────────────────────────────────────────────────────────────────────
 (function initProviderTabs() {
-  document.querySelectorAll('.ptab').forEach(tab => {
+  document.querySelectorAll('#providerTabs .ptab').forEach(tab => {
     tab.classList.toggle('unsupported', !isProviderSupported(tab.dataset.provider));
     tab.setAttribute('aria-disabled', String(!isProviderSupported(tab.dataset.provider)));
     tab.addEventListener('click', () => {
@@ -1661,7 +1910,12 @@ async function submitKey() {
   const status = document.getElementById('keyVerifyStatus');
   const btn = document.getElementById('continueBtn');
   const p = PROVIDERS[currentProvider];
-  const rememberToggle = document.getElementById('rememberKeyToggle');
+  if (!authState.authenticated) {
+    setAuthMode('signin');
+    setAuthStatus('Create or sign in to an account first.', 'fail');
+    openAccountScreen();
+    return;
+  }
   if (!isProviderSupported(currentProvider)) {
     status.textContent = `${p?.name || 'This provider'} support is coming soon. Use OpenAI for now.`;
     status.className = 'key-verify-status spin';
@@ -1682,11 +1936,10 @@ async function submitKey() {
     await verifyKey(raw, currentProvider);
     status.textContent = '✓ Verified'; status.className = 'key-verify-status ok';
     SecureStore.set(raw);
-    if (currentProvider === 'openai' && authState.authenticated && rememberToggle?.checked) {
+    if (currentProvider === 'openai') {
       const saved = await saveAccountApiKey(raw, { quiet: true });
-      if (saved) status.textContent = '✓ Verified and saved to your account';
-      else status.textContent = '✓ Verified. Session is active, but account save failed.';
-      if (rememberToggle) rememberToggle.checked = false;
+      if (!saved) throw new Error('The key verified, but it could not be saved to your account.');
+      status.textContent = '✓ Verified and saved to your account';
     }
     if (currentProvider === 'azure') {
       document.getElementById('azureEndpoint').value = '';
@@ -1694,10 +1947,10 @@ async function submitKey() {
     } else {
       document.getElementById('apiKeyInput').value = '';
     }
-    setTimeout(() => go('s-home'), 600);
+    setTimeout(() => go(getSignedInDefaultScreen()), 600);
   } catch(err) {
     status.textContent = err.message; status.className = 'key-verify-status fail';
-    btn.disabled = false; btn.textContent = 'Verify & Continue';
+    btn.disabled = false; btn.textContent = 'Save Key & Continue';
   }
 }
 
@@ -1717,6 +1970,16 @@ async function pickSC(card, sc) {
   card.classList.add('selected');
   currentSC = sc;
   initializeNegotiationDraft(sc);
+}
+
+function promptSavedKeySetup() {
+  if (!authState.authenticated) {
+    setAuthMode('signin');
+    openAccountScreen();
+    return;
+  }
+  toast(featureEnabled('hostedKeyAvailable') ? 'Hosted key is ready on this plan' : 'Save your OpenAI key first');
+  go('s-key');
 }
 
 function goPrep() {
@@ -1846,6 +2109,7 @@ function getPracticeReplayHandler() {
 function renderPracticeReviewScreen() {
   const verdict = document.getElementById('practiceReviewVerdict');
   const score = document.getElementById('practiceReviewScore');
+  const outcome = document.getElementById('practiceReviewOutcome');
   const summary = document.getElementById('practiceReviewSummary');
   const footnote = document.getElementById('practiceReviewFootnote');
   const loading = document.getElementById('practiceReviewLoading');
@@ -1880,6 +2144,11 @@ function renderPracticeReviewScreen() {
 
   if (verdict) verdict.textContent = practiceReviewState.verdict || 'Session review';
   if (score) score.textContent = practiceReviewState.score || '—';
+  if (outcome) {
+    const visibleOutcome = String(practiceReviewState.outcome || '').trim();
+    outcome.style.display = visibleOutcome ? 'inline-flex' : 'none';
+    outcome.textContent = visibleOutcome ? `Outcome: ${visibleOutcome.toUpperCase()}` : '';
+  }
   if (summary) summary.textContent = practiceReviewState.summary || 'Review completed.';
   if (footnote) footnote.textContent = practiceReviewState.footnote || 'Review restored after reload.';
   renderPracticeReviewList('practiceReviewStrengths', practiceReviewState.strengths);
@@ -1898,6 +2167,7 @@ function openPracticeReviewShell(mode) {
   const subtitle = document.getElementById('practiceReviewSubtitle');
   const verdict = document.getElementById('practiceReviewVerdict');
   const score = document.getElementById('practiceReviewScore');
+  const outcome = document.getElementById('practiceReviewOutcome');
   const summary = document.getElementById('practiceReviewSummary');
   const footnote = document.getElementById('practiceReviewFootnote');
   const strengths = document.getElementById('practiceReviewStrengths');
@@ -1916,6 +2186,10 @@ function openPracticeReviewShell(mode) {
   }
   if (verdict) verdict.textContent = 'Analyzing...';
   if (score) score.textContent = '—';
+  if (outcome) {
+    outcome.style.display = 'none';
+    outcome.textContent = '';
+  }
   if (summary) summary.textContent = 'Reading the session and building quick professional feedback.';
   if (footnote) {
     footnote.textContent =
@@ -1942,6 +2216,7 @@ function openPracticeReviewShell(mode) {
     strengths: [],
     misses: [],
     reps: [],
+    outcome: '',
     footnote: footnote?.textContent || ''
   };
   go('s-practice-review');
@@ -1968,11 +2243,19 @@ function parsePracticeReview(reply) {
     summary: clean || 'The review could not be structured cleanly, but the session completed.',
     strengths: [],
     misses: [],
-    reps: []
+    reps: [],
+    outcome: ''
   };
 }
 
 async function analyzePracticeSession(mode = 'text') {
+  if (!await requirePlanFeature('debriefs', {
+    name: 'Session debriefs',
+    planLabel: 'Pro',
+    body: 'Session debriefs and saved review history start on Pro.'
+  })) {
+    return;
+  }
   const entries = getPracticeSessionTranscript(mode);
   if (entries.length < 2) {
     toast('Not enough conversation to analyze yet');
@@ -1983,13 +2266,14 @@ async function analyzePracticeSession(mode = 'text') {
 
   openPracticeReviewShell(mode);
   try {
+    const wantsOutcome = featureEnabled('winLossAnalysis');
     const review = parsePracticeReview(await secureAPICall([
       {
         role: 'system',
         content: `You are a world-class negotiation trainer reviewing a short practice session.
 
 Return a JSON object with exactly these keys:
-{"verdict":"short title","score":"X/10","summary":"2-3 sentence professional review","strengths":["..."],"misses":["..."],"reps":["..."]}
+{"verdict":"short title","score":"X/10","summary":"2-3 sentence professional review","strengths":["..."],"misses":["..."],"reps":["..."]${wantsOutcome ? ',"outcome":"win|neutral|loss"' : ''}}
 
 Rules:
 - Be direct and commercial.
@@ -1997,6 +2281,7 @@ Rules:
 - Keep each list item to one sentence.
 - Give 3 strengths, 3 misses, and 3 reps when possible.
 - If the user handled something poorly, say it plainly.
+- ${wantsOutcome ? 'Set outcome to win, neutral, or loss based on who had the better negotiation position by the end.' : 'Do not add extra keys.'}
 - No markdown. JSON only.`
       },
       {
@@ -2026,11 +2311,21 @@ Rules:
       strengths: Array.isArray(review.strengths) ? review.strengths : [],
       misses: Array.isArray(review.misses) ? review.misses : [],
       reps: Array.isArray(review.reps) ? review.reps : [],
+      outcome: wantsOutcome ? String(review.outcome || '').trim() : '',
       footnote: `Reviewed with ${PROVIDERS[currentProvider]?.name || currentProvider} · ${currentModel}`
     };
     renderPracticeReviewList('practiceReviewStrengths', review.strengths);
     renderPracticeReviewList('practiceReviewMisses', review.misses);
     renderPracticeReviewList('practiceReviewReps', review.reps);
+    await completeTrackedSession({
+      verdict: review.verdict || 'Session review',
+      score: review.score || '—',
+      summary: review.summary || 'Review completed.',
+      strengths: Array.isArray(review.strengths) ? review.strengths : [],
+      misses: Array.isArray(review.misses) ? review.misses : [],
+      reps: Array.isArray(review.reps) ? review.reps : [],
+      outcome: wantsOutcome ? String(review.outcome || '').trim() : ''
+    });
   } catch(err) {
     const loading = document.getElementById('practiceReviewLoading');
     const content = document.getElementById('practiceReviewContent');
@@ -2048,11 +2343,13 @@ Rules:
       strengths: [],
       misses: [],
       reps: [],
+      outcome: '',
       footnote: ''
     };
     renderPracticeReviewList('practiceReviewStrengths', []);
     renderPracticeReviewList('practiceReviewMisses', []);
     renderPracticeReviewList('practiceReviewReps', []);
+    await completeTrackedSession(null);
   }
 }
 
@@ -2287,10 +2584,14 @@ async function practiceSend() {
   inp.focus();
 }
 
-function goPractice() {
+async function goPractice() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
   if (isScenarioLocked(currentSC)) {
-    promptScenarioAccess(currentSC);
+    await promptScenarioAccess(currentSC);
+    return;
+  }
+  if (!hasAppAccessCredential()) {
+    promptSavedKeySetup();
     return;
   }
   ensureNegotiationDraft();
@@ -2300,6 +2601,12 @@ function goPractice() {
     generatedOpener = '';
     buildPrep();
     go('s-prep');
+    return;
+  }
+  try {
+    await startTrackedSession('practice_text');
+  } catch (error) {
+    toast(error.message || 'Could not start session');
     return;
   }
   setPracticeTitles();
@@ -2392,10 +2699,14 @@ async function practiceVoiceLetThemOpen() {
   if (btn) btn.disabled = false;
 }
 
-function goVoicePractice() {
+async function goVoicePractice() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
   if (isScenarioLocked(currentSC)) {
-    promptScenarioAccess(currentSC);
+    await promptScenarioAccess(currentSC);
+    return;
+  }
+  if (!hasAppAccessCredential()) {
+    promptSavedKeySetup();
     return;
   }
   ensureNegotiationDraft();
@@ -2416,6 +2727,13 @@ function goVoicePractice() {
 
   const browserWarning = getLiveBrowserWarning();
   if (browserWarning) toast('Best with Chrome and headphones');
+
+  try {
+    await startTrackedSession('practice_voice');
+  } catch (error) {
+    toast(error.message || 'Could not start session');
+    return;
+  }
 
   stopMic();
   resetVoicePractice();
@@ -3252,10 +3570,14 @@ Return only the line.`
   }
 }
 
-function goLive() {
+async function goLive() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
   if (isScenarioLocked(currentSC)) {
-    promptScenarioAccess(currentSC);
+    await promptScenarioAccess(currentSC);
+    return;
+  }
+  if (!hasAppAccessCredential()) {
+    promptSavedKeySetup();
     return;
   }
   realtimeMode = 'coach';
@@ -3268,6 +3590,13 @@ function goLive() {
   const browserWarning = getLiveBrowserWarning();
   if (browserWarning) {
     toast('Best on Chrome desktop');
+  }
+  try {
+    await startTrackedSession('live');
+  } catch (error) {
+    setS('idle', error.message || 'Could not start session.');
+    toast(error.message || 'Could not start session');
+    return;
   }
   stopMic();
   resetLive();
@@ -3644,6 +3973,10 @@ let chatTyping = false;
 let chatMobileHasBot = false;
 
 function goChat() {
+  if (!hasAppAccessCredential()) {
+    promptSavedKeySetup();
+    return;
+  }
   chatMobileHasBot = false;
   chatHistory = [];
   chatBot = 'coach';
@@ -3684,7 +4017,15 @@ function setActiveSidebarBot(bot) {
   });
 }
 
-function switchBot(bot, _el) {
+async function switchBot(bot, _el) {
+  if (bot === 'advisor') {
+    const allowed = await requirePlanFeature('strategyBrief', {
+      name: 'AI strategy brief builder',
+      planLabel: 'Deal',
+      body: 'Scenario Advisor and the AI-generated strategy brief are part of the Deal plan.'
+    });
+    if (!allowed) return;
+  }
   chatBot = bot;
   chatHistory = [];
   chatMobileHasBot = true;
@@ -4021,8 +4362,11 @@ function getRestoredScreenId(snapshot) {
   if (authState.authenticated && requested === 's-launch') {
     return getSignedInDefaultScreen();
   }
-  if (!authState.authenticated && !hasAppAccessCredential()) {
-    return ['s-key', 's-auth'].includes(requested) ? requested : 's-launch';
+  if (authState.authenticated && !hasAppAccessCredential()) {
+    return ['s-key', 's-auth', 's-plans'].includes(requested) ? requested : 's-key';
+  }
+  if (!authState.authenticated) {
+    return ['s-launch', 's-auth', 's-plans'].includes(requested) ? requested : 's-launch';
   }
   if ((!currentSC || isScenarioLocked(currentSC)) && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(requested)) {
     return 's-home';
@@ -4088,7 +4432,7 @@ function restoreSessionState() {
   const snapshot = loadSessionSnapshot();
   if (!snapshot) {
     const requested = getScreenForRoute();
-    if (requested === 's-key' || requested === 's-auth' || requested === 's-plans') {
+    if ((authState.authenticated && requested === 's-key') || requested === 's-auth' || requested === 's-plans') {
       if (requested === 's-auth') renderAuthState();
       if (requested === 's-plans') renderPlansState();
       go(requested, { replaceHash: true });
@@ -4151,8 +4495,12 @@ window.addEventListener('hashchange', () => {
     restoreScreenFromSession(target);
     return;
   }
-  if (!authState.authenticated && !hasAppAccessCredential()) {
-    go(['s-key', 's-auth'].includes(target) ? target : 's-launch', { replaceHash: true });
+  if (authState.authenticated && !hasAppAccessCredential()) {
+    go(['s-key', 's-auth', 's-plans'].includes(target) ? target : 's-key', { replaceHash: true });
+    return;
+  }
+  if (!authState.authenticated) {
+    go(['s-launch', 's-auth', 's-plans'].includes(target) ? target : 's-launch', { replaceHash: true });
     return;
   }
   if ((!currentSC || isScenarioLocked(currentSC)) && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(target)) {

@@ -20,7 +20,7 @@ const CUE_KEY_ENCRYPTION_SECRET = String(process.env.CUE_KEY_ENCRYPTION_SECRET |
 const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || '').trim();
 const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
 const STRIPE_PRICE_PRO = String(process.env.STRIPE_PRICE_PRO || '').trim();
-const STRIPE_PRICE_EXOTIC = String(process.env.STRIPE_PRICE_EXOTIC || '').trim();
+const STRIPE_PRICE_DEAL = String(process.env.STRIPE_PRICE_DEAL || process.env.STRIPE_PRICE_EXOTIC || '').trim();
 const liveCallWindows = new Map();
 const stripeSubscriptionCache = new Map();
 const ALLOWED_REALTIME_MODELS = new Set(['gpt-realtime', 'gpt-realtime-mini']);
@@ -30,17 +30,23 @@ const REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 const STRIPE_SUBSCRIPTION_CACHE_TTL_MS = 60 * 1000;
 
 const STRIPE_PLAN_CONFIG = Object.freeze({
+  free: {
+    code: 'free',
+    label: 'Free',
+    tier: 'free',
+    priceId: ''
+  },
   pro: {
     code: 'pro',
     label: 'Pro',
     tier: 'private',
     priceId: STRIPE_PRICE_PRO
   },
-  exotic: {
-    code: 'exotic',
-    label: 'Exotic',
+  deal: {
+    code: 'deal',
+    label: 'Deal',
     tier: 'private',
-    priceId: STRIPE_PRICE_EXOTIC
+    priceId: STRIPE_PRICE_DEAL
   }
 });
 const STRIPE_PRICE_PLAN_INDEX = new Map(
@@ -48,6 +54,68 @@ const STRIPE_PRICE_PLAN_INDEX = new Map(
     .filter(plan => plan.priceId)
     .map(plan => [plan.priceId, plan])
 );
+const FREE_SCENARIO_IDS = Object.freeze(['salary', 'rent', 'car']);
+const PRO_SCENARIO_IDS = Object.freeze([
+  'salary', 'rent', 'car', 'freelance', 'joboffer', 'biz', 'severance', 'medical',
+  'realestate', 'equity', 'agency', 'raise'
+]);
+const DEAL_SCENARIO_IDS = Object.freeze([...PRO_SCENARIO_IDS, 'custom']);
+const PLAN_RULES = Object.freeze({
+  free: {
+    code: 'free',
+    label: 'Free',
+    sessionLimit: 3,
+    allowedScenarioIds: FREE_SCENARIO_IDS,
+    features: {
+      byok: true,
+      hostedKey: false,
+      fullLibrary: false,
+      sessionHistory: false,
+      debriefs: false,
+      strategyBrief: false,
+      customScenarios: false,
+      winLossAnalysis: false,
+      earlyAccess: false,
+      dedicatedSupport: false
+    }
+  },
+  pro: {
+    code: 'pro',
+    label: 'Pro',
+    sessionLimit: null,
+    allowedScenarioIds: PRO_SCENARIO_IDS,
+    features: {
+      byok: true,
+      hostedKey: true,
+      fullLibrary: true,
+      sessionHistory: true,
+      debriefs: true,
+      strategyBrief: false,
+      customScenarios: false,
+      winLossAnalysis: false,
+      earlyAccess: true,
+      dedicatedSupport: false
+    }
+  },
+  deal: {
+    code: 'deal',
+    label: 'Deal',
+    sessionLimit: null,
+    allowedScenarioIds: DEAL_SCENARIO_IDS,
+    features: {
+      byok: true,
+      hostedKey: true,
+      fullLibrary: true,
+      sessionHistory: true,
+      debriefs: true,
+      strategyBrief: true,
+      customScenarios: true,
+      winLossAnalysis: true,
+      earlyAccess: true,
+      dedicatedSupport: true
+    }
+  }
+});
 
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -105,7 +173,7 @@ function hasSupabaseAdmin() {
 }
 
 function hasStripeBilling() {
-  return !!(STRIPE_SECRET_KEY && STRIPE_PRICE_PRO && STRIPE_PRICE_EXOTIC);
+  return !!(STRIPE_SECRET_KEY && STRIPE_PRICE_PRO && STRIPE_PRICE_DEAL);
 }
 
 function hasStripeWebhookSupport() {
@@ -333,11 +401,65 @@ function validateOpenAIKey(apiKey) {
 }
 
 function getStripePlanConfig(planCode) {
-  return STRIPE_PLAN_CONFIG[String(planCode || '').trim().toLowerCase()] || null;
+  const value = String(planCode || '').trim().toLowerCase();
+  if (value === 'exotic') return STRIPE_PLAN_CONFIG.deal;
+  return STRIPE_PLAN_CONFIG[value] || null;
 }
 
 function getStripePlanByPriceId(priceId) {
   return STRIPE_PRICE_PLAN_INDEX.get(String(priceId || '').trim()) || null;
+}
+
+function getPlanRule(planCode) {
+  return PLAN_RULES[String(planCode || '').trim().toLowerCase()] || PLAN_RULES.free;
+}
+
+function getMonthStartIso(reference = new Date()) {
+  return new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
+}
+
+function hasHostedOpenAIKeyAvailable() {
+  return ALLOW_SERVER_KEY_LIVE && validateOpenAIKey(OPENAI_API_KEY || '');
+}
+
+function buildAccessState(billing, options = {}) {
+  const effectivePlanCode = billing?.isPaid ? (billing?.planCode || 'free') : 'free';
+  const planCode = getPlanRule(effectivePlanCode).code;
+  const rule = getPlanRule(planCode);
+  const savedKey = !!options.savedKey;
+  const sessionsUsed = Math.max(0, Number(options.sessionsUsedThisMonth || 0));
+  const sessionLimit = rule.sessionLimit;
+  const sessionsRemaining = sessionLimit === null ? null : Math.max(0, sessionLimit - sessionsUsed);
+  const hostedKeyEligible = !!rule.features.hostedKey;
+  const hostedKeyAvailable = hostedKeyEligible && hasHostedOpenAIKeyAvailable();
+  const requiresSavedKey = !hostedKeyAvailable && !savedKey;
+  return {
+    planCode: rule.code,
+    planLabel: rule.label,
+    sessionLimit,
+    sessionsUsedThisMonth: sessionsUsed,
+    sessionsRemaining,
+    allowedScenarioIds: [...rule.allowedScenarioIds],
+    features: {
+      ...rule.features,
+      hostedKeyEligible,
+      hostedKeyAvailable
+    },
+    canStartSession: sessionLimit === null || sessionsRemaining > 0,
+    requiresSavedKey,
+    hasSavedKey: savedKey
+  };
+}
+
+function canAccessScenario(access, scenarioId) {
+  return !!access && access.allowedScenarioIds.includes(String(scenarioId || '').trim());
+}
+
+function getScenarioGatePlanLabel(scenarioId) {
+  const id = String(scenarioId || '').trim();
+  if (DEAL_SCENARIO_IDS.includes(id) && !PRO_SCENARIO_IDS.includes(id)) return 'Deal';
+  if (PRO_SCENARIO_IDS.includes(id) && !FREE_SCENARIO_IDS.includes(id)) return 'Pro';
+  return 'Free';
 }
 
 function normalizeBillingStatus(status) {
@@ -662,6 +784,135 @@ async function ensureStripeCustomerForUser(user, billingAccount = null) {
   return customerId;
 }
 
+async function countMonthlyNegotiationRuns(userId) {
+  if (!userId || !hasSupabaseAdmin()) return 0;
+  const { data } = await supabaseAdminFetch(buildSupabaseRestPath('negotiation_runs', {
+    user_id: `eq.${userId}`,
+    started_at: `gte.${getMonthStartIso()}`,
+    status: 'neq.failed',
+    select: 'id'
+  }));
+  return Array.isArray(data) ? data.length : 0;
+}
+
+async function fetchRecentRunHistory(userId) {
+  if (!userId || !hasSupabaseAdmin()) return [];
+  const { data: runsData } = await supabaseAdminFetch(buildSupabaseRestPath('negotiation_runs', {
+    user_id: `eq.${userId}`,
+    select: 'id,mode,scenario_name,status,created_at,ended_at,metadata',
+    order: 'created_at.desc',
+    limit: 6
+  }));
+  const runs = Array.isArray(runsData) ? runsData : [];
+  if (!runs.length) return [];
+  const runIds = runs.map(run => run.id).filter(Boolean);
+  const inClause = runIds.length ? `in.(${runIds.join(',')})` : '';
+  const { data: reportsData } = inClause
+    ? await supabaseAdminFetch(buildSupabaseRestPath('analysis_reports', {
+        user_id: `eq.${userId}`,
+        run_id: inClause,
+        select: 'run_id,score,verdict,summary,payload'
+      }))
+    : { data: [] };
+  const reportsByRunId = new Map(
+    (Array.isArray(reportsData) ? reportsData : []).map(report => [report.run_id, report])
+  );
+  return runs.map(run => {
+    const report = reportsByRunId.get(run.id) || null;
+    return {
+      id: run.id,
+      mode: run.mode || '',
+      scenarioName: run.scenario_name || 'Session',
+      createdAt: run.created_at || null,
+      endedAt: run.ended_at || null,
+      status: run.status || 'completed',
+      summary: report?.summary || run?.metadata?.reviewSummary || '',
+      verdict: report?.verdict || '',
+      score: report?.score || '',
+      outcome: report?.payload?.outcome || run?.metadata?.outcome || '',
+      planCode: run?.metadata?.planCode || '',
+      scenarioId: run?.metadata?.scenarioId || ''
+    };
+  });
+}
+
+async function createNegotiationRun(userId, payload = {}) {
+  if (!userId || !hasSupabaseAdmin()) throw new Error('Supabase admin access is not configured.');
+  const { response, data } = await supabaseAdminFetch('/rest/v1/negotiation_runs', {
+    method: 'POST',
+    headers: {
+      Prefer: 'return=representation'
+    },
+    body: {
+      user_id: userId,
+      mode: payload.mode,
+      scenario_name: String(payload.scenarioName || 'Session').trim().slice(0, 120),
+      status: payload.status || 'in_progress',
+      metadata: payload.metadata || {},
+      started_at: payload.startedAt || new Date().toISOString(),
+      ended_at: payload.endedAt || null
+    }
+  });
+  if (!response.ok) {
+    throw new Error(data?.message || 'Could not create negotiation run.');
+  }
+  return Array.isArray(data) ? (data[0] || null) : data;
+}
+
+async function fetchNegotiationRunById(userId, runId) {
+  if (!userId || !runId || !hasSupabaseAdmin()) return null;
+  const { data } = await supabaseAdminFetch(buildSupabaseRestPath('negotiation_runs', {
+    user_id: `eq.${userId}`,
+    id: `eq.${runId}`,
+    select: 'id,user_id,mode,scenario_name,status,metadata,started_at,ended_at',
+    limit: 1
+  }));
+  return Array.isArray(data) ? (data[0] || null) : null;
+}
+
+async function updateNegotiationRun(userId, runId, patch = {}) {
+  if (!userId || !runId || !hasSupabaseAdmin()) return null;
+  const { response, data } = await supabaseAdminFetch(buildSupabaseRestPath('negotiation_runs', {
+    user_id: `eq.${userId}`,
+    id: `eq.${runId}`
+  }), {
+    method: 'PATCH',
+    headers: {
+      Prefer: 'return=representation'
+    },
+    body: patch
+  });
+  if (!response.ok) {
+    throw new Error(data?.message || 'Could not update negotiation run.');
+  }
+  return Array.isArray(data) ? (data[0] || null) : data;
+}
+
+async function upsertAnalysisReport(userId, runId, payload = {}) {
+  if (!userId || !runId || !hasSupabaseAdmin()) return null;
+  const { response, data } = await supabaseAdminFetch(
+    buildSupabaseRestPath('analysis_reports', { on_conflict: 'run_id' }),
+    {
+      method: 'POST',
+      headers: {
+        Prefer: 'resolution=merge-duplicates,return=representation'
+      },
+      body: {
+        user_id: userId,
+        run_id: runId,
+        score: payload.score || null,
+        verdict: payload.verdict || null,
+        summary: payload.summary || null,
+        payload: payload.payload || {}
+      }
+    }
+  );
+  if (!response.ok) {
+    throw new Error(data?.message || 'Could not save session analysis.');
+  }
+  return Array.isArray(data) ? (data[0] || null) : data;
+}
+
 async function fetchBillingStateForUser(userId) {
   const billing = await fetchBillingAccountForUser(userId);
   if (!billing) {
@@ -670,7 +921,7 @@ async function fetchBillingStateForUser(userId) {
       planTier: 'free',
       planStatus: 'inactive',
       planName: 'Free',
-      planCode: '',
+      planCode: 'free',
       currentPeriodEnd: null,
       canManage: false,
       isPaid: false
@@ -692,8 +943,8 @@ async function fetchBillingStateForUser(userId) {
     enabled: hasStripeBilling(),
     planTier,
     planStatus,
-    planName: summary?.planName || (isPaid ? 'Cue Private' : 'Free'),
-    planCode: summary?.planCode || '',
+    planName: isPaid ? (summary?.planName || 'Cue Private') : 'Free',
+    planCode: isPaid ? (summary?.planCode || 'free') : 'free',
     currentPeriodEnd: summary?.currentPeriodEnd || billing.current_period_end || null,
     canManage: hasStripeBilling() && !!String(summary?.stripeCustomerId || billing.stripe_customer_id || '').trim(),
     isPaid
@@ -754,10 +1005,15 @@ async function fetchAccountStateForUser(user) {
       planTier: 'free',
       planStatus: 'inactive',
       planName: 'Free',
-      planCode: '',
+      planCode: 'free',
       currentPeriodEnd: null,
       canManage: false,
       isPaid: false
+    },
+    access: buildAccessState({ planCode: 'free' }, { savedKey: false, sessionsUsedThisMonth: 0 }),
+    history: {
+      available: false,
+      entries: []
     }
   };
   if (!user?.id || !hasSupabaseAdmin()) return fallback;
@@ -776,10 +1032,11 @@ async function fetchAccountStateForUser(user) {
     limit: 1
   });
 
-  const [{ data: profileData }, { data: keyData }, billing] = await Promise.all([
+  const [{ data: profileData }, { data: keyData }, billing, sessionsUsedThisMonth] = await Promise.all([
     supabaseAdminFetch(profilePath),
     supabaseAdminFetch(keyPath),
-    fetchBillingStateForUser(user.id)
+    fetchBillingStateForUser(user.id),
+    countMonthlyNegotiationRuns(user.id)
   ]);
 
   const profile = Array.isArray(profileData) ? profileData[0] : null;
@@ -792,13 +1049,23 @@ async function fetchAccountStateForUser(user) {
         updatedAt: keyData[0].updated_at || null
       }
     : null;
+  const access = buildAccessState(billing, {
+    savedKey: !!savedKey,
+    sessionsUsedThisMonth
+  });
+  const historyEntries = access.features.sessionHistory ? await fetchRecentRunHistory(user.id) : [];
 
   return {
     displayName: String(profile?.display_name || fallback.displayName).trim(),
     email: String(profile?.email || fallback.email).trim(),
     onboardingComplete: !!profile?.onboarding_complete,
     savedKey,
-    billing: billing || fallback.billing
+    billing: billing || fallback.billing,
+    access,
+    history: {
+      available: access.features.sessionHistory,
+      entries: historyEntries
+    }
   };
 }
 
@@ -816,6 +1083,22 @@ async function fetchStoredOpenAIKey(userId) {
   const row = Array.isArray(data) ? data[0] : null;
   if (!row?.encrypted_key) return '';
   return decryptStoredSecret(row.encrypted_key);
+}
+
+async function resolveAccountForUser(user) {
+  if (!user?.id) throw new Error('Sign in first.');
+  return fetchAccountStateForUser(user);
+}
+
+async function resolveApiKeyForAccount(account, userId) {
+  const savedKey = await fetchStoredOpenAIKey(userId);
+  if (validateOpenAIKey(savedKey)) {
+    return { apiKey: savedKey, source: 'saved' };
+  }
+  if (account?.access?.features?.hostedKeyAvailable && validateOpenAIKey(OPENAI_API_KEY || '')) {
+    return { apiKey: OPENAI_API_KEY, source: 'hosted' };
+  }
+  return { apiKey: '', source: '' };
 }
 
 async function verifyOpenAIKeyServer(apiKey) {
@@ -1304,6 +1587,117 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/api/runs/start') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site run requests are not allowed.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const body = await readJsonBody(req);
+      const mode = String(body.mode || '').trim();
+      const scenarioId = String(body.scenarioId || '').trim();
+      const scenarioName = String(body.scenarioName || '').trim();
+      if (!['practice_text', 'practice_voice', 'live'].includes(mode)) {
+        sendJson(res, 400, { error: 'Choose a valid session mode.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const account = await resolveAccountForUser(user);
+      const access = account.access || buildAccessState({ planCode: 'free' }, { savedKey: false, sessionsUsedThisMonth: 0 });
+      if (!canAccessScenario(access, scenarioId)) {
+        sendJson(res, 403, {
+          error: `${getScenarioGatePlanLabel(scenarioId)} plan required for that scenario.`
+        }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      if (access.requiresSavedKey) {
+        sendJson(res, 403, {
+          error: 'Save your OpenAI key on this account before starting sessions.'
+        }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      if (!access.canStartSession) {
+        sendJson(res, 403, {
+          error: `Free includes ${access.sessionLimit} sessions per month. Upgrade to Pro for unlimited sessions.`
+        }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const run = await createNegotiationRun(user.id, {
+        mode,
+        scenarioName: scenarioName || scenarioId || 'Session',
+        status: 'in_progress',
+        metadata: {
+          scenarioId,
+          planCode: access.planCode,
+          planLabel: access.planLabel
+        }
+      });
+      const refreshedAccount = await fetchAccountStateForUser(user);
+      sendJson(res, 200, {
+        ok: true,
+        runId: run?.id || '',
+        account: refreshedAccount
+      }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/runs/complete') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site run requests are not allowed.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const body = await readJsonBody(req);
+      const runId = String(body.runId || '').trim();
+      if (!runId) {
+        sendJson(res, 400, { error: 'Missing run id.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const run = await fetchNegotiationRunById(user.id, runId);
+      if (!run) {
+        sendJson(res, 404, { error: 'Session run not found.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const account = await resolveAccountForUser(user);
+      const review = body.review && typeof body.review === 'object' ? body.review : null;
+      const metadata = {
+        ...(run.metadata && typeof run.metadata === 'object' ? run.metadata : {}),
+        ...(review?.summary ? { reviewSummary: String(review.summary).trim().slice(0, 300) } : {}),
+        ...(review?.outcome ? { outcome: String(review.outcome).trim().slice(0, 40) } : {})
+      };
+      await updateNegotiationRun(user.id, runId, {
+        status: 'completed',
+        ended_at: new Date().toISOString(),
+        metadata
+      });
+      if (review && account.access?.features?.debriefs) {
+        await upsertAnalysisReport(user.id, runId, {
+          score: String(review.score || '').trim(),
+          verdict: String(review.verdict || '').trim(),
+          summary: String(review.summary || '').trim(),
+          payload: {
+            strengths: Array.isArray(review.strengths) ? review.strengths : [],
+            misses: Array.isArray(review.misses) ? review.misses : [],
+            reps: Array.isArray(review.reps) ? review.reps : [],
+            outcome: String(review.outcome || '').trim()
+          }
+        });
+      }
+      const refreshedAccount = await fetchAccountStateForUser(user);
+      sendJson(res, 200, {
+        ok: true,
+        account: refreshedAccount
+      }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/api/billing/checkout') {
       if (!isAllowedSameOriginRequest(req)) {
         sendJson(res, 403, { error: 'Cross-site billing requests are not allowed.' });
@@ -1414,9 +1808,13 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
         return;
       }
-      const apiKey = await fetchStoredOpenAIKey(user.id);
+      const account = await resolveAccountForUser(user);
+      const { apiKey, source } = await resolveApiKeyForAccount(account, user.id);
       if (!validateOpenAIKey(apiKey)) {
-        sendJson(res, 403, { error: 'No saved OpenAI key is available on this account.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        const message = account.access?.features?.hostedKeyEligible
+          ? 'No saved OpenAI key is available, and Gibsel hosted usage is not configured yet.'
+          : 'Save your OpenAI key on this account first.';
+        sendJson(res, 403, { error: message }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
         return;
       }
       const body = await readJsonBody(req);
@@ -1452,7 +1850,8 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       sendJson(res, 200, {
-        content: data?.choices?.[0]?.message?.content || ''
+        content: data?.choices?.[0]?.message?.content || '',
+        source
       }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
       return;
     }
@@ -1466,22 +1865,21 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 429, { error: 'Too many live session attempts. Try again shortly.' });
         return;
       }
-      const byokHeader = typeof req.headers['x-openai-key'] === 'string' ? req.headers['x-openai-key'].trim() : '';
       const requestedRealtimeModel = typeof req.headers['x-openai-realtime-model'] === 'string'
         ? req.headers['x-openai-realtime-model'].trim()
         : '';
-      const serverKey = ALLOW_SERVER_KEY_LIVE ? OPENAI_API_KEY : '';
-      let apiKey = byokHeader || serverKey;
       const { user, setCookies } = await getAuthenticatedRequestState(req);
-      if (!apiKey && user) {
-        apiKey = await fetchStoredOpenAIKey(user.id);
-      }
-      if (!apiKey) {
-        sendJson(res, 503, { error: 'Live mode needs an OpenAI BYOK session, a saved account key, or an explicitly enabled server key.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
         return;
       }
-      if (byokHeader && !apiKey.startsWith('sk-')) {
-        sendJson(res, 400, { error: 'Invalid OpenAI key format for live mode.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      const account = await resolveAccountForUser(user);
+      const { apiKey } = await resolveApiKeyForAccount(account, user.id);
+      if (!validateOpenAIKey(apiKey)) {
+        const message = account.access?.features?.hostedKeyEligible
+          ? 'Live mode needs a saved OpenAI key or Gibsel hosted usage configured on the server.'
+          : 'Save your OpenAI key on this account before starting live mode.';
+        sendJson(res, 403, { error: message }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
         return;
       }
 
