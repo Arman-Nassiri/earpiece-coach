@@ -586,6 +586,16 @@ html, body {
   line-height: 1.7;
   color: var(--text2);
 }
+.plans-hero-status {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--rs);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text2);
+}
 .plans-grid {
   display: grid;
   gap: 12px;
@@ -597,9 +607,16 @@ html, body {
   border: 1.5px solid var(--border);
   background: var(--surface);
 }
+.plan-card.current-plan {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px rgba(24, 23, 15, 0.06);
+}
 .plan-card.featured {
   border-color: var(--border2);
   background: linear-gradient(180deg, var(--surface) 0%, var(--bg2) 100%);
+}
+.plan-card.featured.current-plan {
+  border-color: var(--text);
 }
 .plan-card-top {
   display: flex;
@@ -642,6 +659,16 @@ html, body {
   line-height: 1.65;
   color: var(--text2);
 }
+.plan-inline-status {
+  margin-top: 14px;
+  padding: 12px 13px;
+  border-radius: var(--rs);
+  border: 1.5px solid var(--border);
+  background: var(--bg2);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text2);
+}
 .plan-feature-list {
   list-style: none;
   display: flex;
@@ -663,8 +690,15 @@ html, body {
   top: 0;
   color: var(--text3);
 }
-.plans-actions .btn[disabled] {
-  opacity: 0.52;
+.plan-card-actions {
+  margin-top: 18px;
+}
+.plan-card-btn.ghost {
+  background: var(--bg2);
+}
+.plans-actions .key-verify-status {
+  text-align: left;
+  min-height: 18px;
 }
 @media (min-width: 768px) {
   #s-auth,

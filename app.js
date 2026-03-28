@@ -926,6 +926,53 @@ function getAuthDisplayCopy() {
   return email ? email.split('@')[0].slice(0, 14) : 'Account';
 }
 
+function getBillingState() {
+  return authState.account?.billing || {
+    enabled: false,
+    planTier: 'free',
+    planStatus: 'inactive',
+    planName: 'Free',
+    planCode: '',
+    currentPeriodEnd: null,
+    canManage: false,
+    isPaid: false
+  };
+}
+
+function formatBillingStatusLabel(status) {
+  const value = String(status || '').trim().toLowerCase();
+  if (value === 'active') return 'Active';
+  if (value === 'trialing') return 'Trialing';
+  if (value === 'past_due') return 'Past Due';
+  if (value === 'canceled') return 'Canceled';
+  return 'Inactive';
+}
+
+function formatBillingPeriodEnd(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+}
+
+function setPlansStatus(message = '', kind = '') {
+  const el = document.getElementById('plansStatus');
+  if (!el) return;
+  el.textContent = message;
+  el.className = 'key-verify-status' + (kind ? ` ${kind}` : '');
+}
+
+function setPlanButtonsDisabled(disabled) {
+  ['planBtnPro', 'planBtnExotic', 'plansManageBtn', 'plansRefreshBtn'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) btn.disabled = !!disabled;
+  });
+}
+
 function formatSavedKeyTimestamp(value) {
   if (!value) return 'Saved on your account.';
   const date = new Date(value);
@@ -958,6 +1005,8 @@ function renderAuthState() {
   const overviewStrip = document.getElementById('authOverviewStrip');
   const snapshotLabel = document.getElementById('authSnapshotLabel');
   const overviewKey = document.getElementById('authOverviewKey');
+  const overviewPlan = document.getElementById('authOverviewPlan');
+  const overviewPlanSub = document.getElementById('authOverviewPlanSub');
   const nameRow = document.getElementById('authNameRow');
   const primaryBtn = document.getElementById('authPrimaryBtn');
   const secondaryBtn = document.getElementById('authSecondaryBtn');
@@ -974,6 +1023,7 @@ function renderAuthState() {
   const profileInput = document.getElementById('accountDisplayNameInput');
   const keyState = document.getElementById('accountKeyState');
   const keyDeleteBtn = document.getElementById('accountKeyDeleteBtn');
+  const billing = getBillingState();
   const accountButtons = [
     document.getElementById('accountHomeBtn')
   ].filter(Boolean);
@@ -1002,8 +1052,8 @@ function renderAuthState() {
   }
   if (note) {
     note.textContent = authMode === 'signin'
-      ? 'Sign in to your Cue account. Saved personal keys and plan access will plug in here next.'
-      : 'Create your Cue account first. Plan checkout and saved BYOK storage will attach to this identity.';
+      ? 'Sign in to your Cue account. Saved personal keys and Stripe billing stay attached to this identity.'
+      : 'Create your Cue account first. Saved BYOK storage and Stripe billing will attach to this identity.';
   }
 
   if (primaryBtn) {
@@ -1021,6 +1071,9 @@ function renderAuthState() {
   if (summaryMeta) {
     if (!authState.authenticated) {
       summaryMeta.textContent = 'Checking account status...';
+    } else if (billing.isPaid) {
+      const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
+      summaryMeta.textContent = `${billing.planName} plan ${formatBillingStatusLabel(billing.planStatus).toLowerCase()}${renewal ? ` through ${renewal}` : ''}.`;
     } else if (authState.user?.emailConfirmedAt) {
       summaryMeta.textContent = 'Email verified. Account session is active.';
     } else {
@@ -1032,6 +1085,17 @@ function renderAuthState() {
     overviewKey.textContent = accountHasSavedOpenAIKey()
       ? `•••• ${authState.account.savedKey.last4}`
       : 'No saved key yet';
+  }
+  if (overviewPlan) {
+    overviewPlan.textContent = billing.isPaid ? billing.planName : 'Free';
+  }
+  if (overviewPlanSub) {
+    if (billing.isPaid) {
+      const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
+      overviewPlanSub.textContent = `${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}. Manage it from the Plans tab whenever you need to change or cancel.`;
+    } else {
+      overviewPlanSub.textContent = 'Stripe billing is ready when you want managed private usage attached to this account instead of pure BYOK.';
+    }
   }
   if (keyState) {
     keyState.textContent = accountHasSavedOpenAIKey()
@@ -1056,24 +1120,170 @@ function openAccountScreen() {
 }
 
 function renderPlansState() {
+  const billing = getBillingState();
   const subcopy = document.getElementById('plansSubcopy');
+  const heroTitle = document.getElementById('plansHeroTitle');
   const heroCopy = document.getElementById('plansHeroCopy');
+  const heroStatus = document.getElementById('plansHeroStatus');
+  const noteCopy = document.getElementById('plansNoteCopy');
+  const manageBtn = document.getElementById('plansManageBtn');
+  const planDefinitions = [
+    { code: 'pro', label: 'Pro', badgeEl: 'planBadgePro', statusEl: 'planStatusPro', btnEl: 'planBtnPro', cardEl: 'planCardPro' },
+    { code: 'exotic', label: 'Exotic', badgeEl: 'planBadgeExotic', statusEl: 'planStatusExotic', btnEl: 'planBtnExotic', cardEl: 'planCardExotic' }
+  ];
   if (subcopy) {
     subcopy.textContent = authState.authenticated
-      ? 'Your account is ready. Paid Cue plans are shown here now so the offer is clear before checkout goes live.'
-      : 'Paid Cue plans are staged next. You can already create an account or save your own key while checkout stays offline.';
+      ? 'Billing lives directly on your Cue account now. Pick a plan or manage the one already attached to this identity.'
+      : 'Plans attach to a signed-in Cue account. BYOK-only visitors stay on the free path until they create one.';
+  }
+  if (heroTitle) {
+    heroTitle.textContent = authState.authenticated
+      ? billing.isPaid
+        ? `${billing.planName} is attached to this Cue account.`
+        : 'Choose the private setup you want attached to this Cue account.'
+      : 'Run Cue from one signed-in account with managed private usage instead of repasting BYOK every time.';
   }
   if (heroCopy) {
     heroCopy.textContent = authState.authenticated
-      ? 'Your account is active. Once billing opens, plan access will attach directly to this identity with no extra setup.'
-      : 'Create an account first and you will be ready for plan checkout as soon as payments go live.';
+      ? billing.isPaid
+        ? 'Billing, renewals, and future plan changes stay tied to your account without changing how the rest of Cue works.'
+        : 'Free account access still unlocks the full scenario library. Paid plans are for heavier private usage and more Cue-managed support.'
+      : 'Sign in first, then subscribe from the same account you will use inside Cue.';
   }
+  if (heroStatus) {
+    if (!authState.authenticated) {
+      heroStatus.textContent = 'Sign in to start subscription checkout.';
+    } else if (billing.isPaid) {
+      const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
+      heroStatus.textContent = `${billing.planName} • ${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}`;
+    } else {
+      heroStatus.textContent = 'Free account active. Subscribe when you want managed private usage.';
+    }
+  }
+  if (noteCopy) {
+    noteCopy.textContent = billing.isPaid
+      ? 'Your account already has managed billing attached. Use the portal for card updates, invoice history, cancellations, or plan changes.'
+      : 'Free accounts still unlock the full scenario library. Paid plans are for people who want managed private usage and deeper Cue support attached to one account.';
+  }
+  if (manageBtn) manageBtn.style.display = authState.authenticated && billing.canManage ? 'block' : 'none';
+
+  planDefinitions.forEach(plan => {
+    const badge = document.getElementById(plan.badgeEl);
+    const status = document.getElementById(plan.statusEl);
+    const button = document.getElementById(plan.btnEl);
+    const card = document.getElementById(plan.cardEl);
+    const currentPlan = billing.isPaid && billing.planCode === plan.code;
+    const switching = billing.isPaid && billing.planCode && billing.planCode !== plan.code;
+
+    if (badge) {
+      badge.textContent = currentPlan
+        ? 'Current Plan'
+        : switching && plan.code === 'exotic'
+          ? 'Upgrade'
+          : authState.authenticated
+            ? 'Ready'
+            : 'Sign In';
+    }
+    if (status) {
+      if (!authState.authenticated) {
+        status.textContent = 'Create or sign in to subscribe from your Cue account.';
+      } else if (currentPlan) {
+        const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
+        status.textContent = `${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}.`;
+      } else if (switching) {
+        status.textContent = `You are currently on ${billing.planName}. Choose this tier if you want Stripe to move the account here.`;
+      } else {
+        status.textContent = 'Subscribe from this account. Billing stays attached to the same login you use inside Cue.';
+      }
+    }
+    if (button) {
+      button.classList.toggle('ghost', currentPlan && billing.canManage);
+      button.textContent = !authState.authenticated
+        ? 'Sign In to Subscribe'
+        : currentPlan
+          ? (billing.canManage ? 'Manage Billing' : 'Current Plan')
+          : switching
+            ? `Switch to ${plan.label}`
+            : `Choose ${plan.label}`;
+      button.disabled = false;
+    }
+    if (card) card.classList.toggle('current-plan', currentPlan);
+  });
 }
 
 function openPlansScreen() {
   renderPlansState();
   go('s-plans');
   if (!authState.checked) refreshAuthState({ silent: true });
+}
+
+async function startPlanCheckout(planCode) {
+  if (!authState.authenticated) {
+    setAuthMode('signin');
+    setPlansStatus('Sign in or create an account first, then come back here to subscribe.', 'fail');
+    openAccountScreen();
+    return;
+  }
+  if (!getBillingState().enabled) {
+    setPlansStatus('Stripe billing is not configured yet.', 'fail');
+    return;
+  }
+  if (getBillingState().isPaid && getBillingState().planCode === planCode && getBillingState().canManage) {
+    await openBillingPortal();
+    return;
+  }
+
+  setPlanButtonsDisabled(true);
+  setPlansStatus('Opening Stripe checkout…', 'spin');
+  try {
+    const data = await authRequest('/api/billing/checkout', {
+      body: { plan: planCode }
+    });
+    if (!data?.url) throw new Error('Stripe did not return a checkout link.');
+    window.location.href = data.url;
+  } catch (error) {
+    setPlansStatus(error.message || 'Could not start Stripe checkout.', 'fail');
+    renderPlansState();
+  } finally {
+    setPlanButtonsDisabled(false);
+  }
+}
+
+async function openBillingPortal() {
+  if (!authState.authenticated) {
+    setPlansStatus('Sign in first.', 'fail');
+    openAccountScreen();
+    return;
+  }
+  if (!getBillingState().canManage) {
+    setPlansStatus('No active Stripe billing profile is attached to this account yet.', 'fail');
+    return;
+  }
+
+  setPlanButtonsDisabled(true);
+  setPlansStatus('Opening billing portal…', 'spin');
+  try {
+    const data = await authRequest('/api/billing/portal', {
+      body: {}
+    });
+    if (!data?.url) throw new Error('Stripe did not return a billing portal link.');
+    window.location.href = data.url;
+  } catch (error) {
+    setPlansStatus(error.message || 'Could not open billing portal.', 'fail');
+    renderPlansState();
+  } finally {
+    setPlanButtonsDisabled(false);
+  }
+}
+
+async function refreshPlanStatus() {
+  setPlansStatus('Refreshing billing state…', 'spin');
+  try {
+    await refreshAuthState({ silent: true });
+    setPlansStatus('Billing state refreshed.', 'ok');
+  } catch (_) {
+    setPlansStatus('Could not refresh billing state.', 'fail');
+  }
 }
 
 function beginGoogleOAuth(next = '/#auth') {
@@ -1210,6 +1420,7 @@ async function signOutAccount() {
     renderPlansState();
     setAuthStatus('Signed out', 'ok');
     setAccountSettingsStatus('', '');
+    setPlansStatus('', '');
   } catch (error) {
     setAuthStatus(error.message || 'Could not sign out.', 'fail');
   }

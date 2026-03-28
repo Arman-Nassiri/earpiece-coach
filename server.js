@@ -17,11 +17,37 @@ const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$
 const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const CUE_KEY_ENCRYPTION_SECRET = String(process.env.CUE_KEY_ENCRYPTION_SECRET || '').trim();
+const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || '').trim();
+const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
+const STRIPE_PRICE_PRO = String(process.env.STRIPE_PRICE_PRO || '').trim();
+const STRIPE_PRICE_EXOTIC = String(process.env.STRIPE_PRICE_EXOTIC || '').trim();
 const liveCallWindows = new Map();
+const stripeSubscriptionCache = new Map();
 const ALLOWED_REALTIME_MODELS = new Set(['gpt-realtime', 'gpt-realtime-mini']);
 const ACCESS_COOKIE = 'cue_sb_at';
 const REFRESH_COOKIE = 'cue_sb_rt';
 const REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
+const STRIPE_SUBSCRIPTION_CACHE_TTL_MS = 60 * 1000;
+
+const STRIPE_PLAN_CONFIG = Object.freeze({
+  pro: {
+    code: 'pro',
+    label: 'Pro',
+    tier: 'private',
+    priceId: STRIPE_PRICE_PRO
+  },
+  exotic: {
+    code: 'exotic',
+    label: 'Exotic',
+    tier: 'private',
+    priceId: STRIPE_PRICE_EXOTIC
+  }
+});
+const STRIPE_PRICE_PLAN_INDEX = new Map(
+  Object.values(STRIPE_PLAN_CONFIG)
+    .filter(plan => plan.priceId)
+    .map(plan => [plan.priceId, plan])
+);
 
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -76,6 +102,14 @@ function hasSupabaseAuth() {
 
 function hasSupabaseAdmin() {
   return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function hasStripeBilling() {
+  return !!(STRIPE_SECRET_KEY && STRIPE_PRICE_PRO && STRIPE_PRICE_EXOTIC);
+}
+
+function hasStripeWebhookSupport() {
+  return !!(STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET);
 }
 
 function readBody(req) {
@@ -298,6 +332,107 @@ function validateOpenAIKey(apiKey) {
   return typeof apiKey === 'string' && apiKey.startsWith('sk-') && apiKey.length >= 20;
 }
 
+function getStripePlanConfig(planCode) {
+  return STRIPE_PLAN_CONFIG[String(planCode || '').trim().toLowerCase()] || null;
+}
+
+function getStripePlanByPriceId(priceId) {
+  return STRIPE_PRICE_PLAN_INDEX.get(String(priceId || '').trim()) || null;
+}
+
+function normalizeBillingStatus(status) {
+  const value = String(status || '').trim().toLowerCase();
+  if (value === 'trialing') return 'trialing';
+  if (value === 'active') return 'active';
+  if (value === 'past_due') return 'past_due';
+  if (value === 'canceled' || value === 'unpaid' || value === 'incomplete_expired') return 'canceled';
+  return 'inactive';
+}
+
+function isPaidBillingStatus(status) {
+  return ['trialing', 'active', 'past_due'].includes(normalizeBillingStatus(status));
+}
+
+function toIsoFromUnixSeconds(value) {
+  const seconds = Number(value || 0);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return new Date(seconds * 1000).toISOString();
+}
+
+function appendStripeFormValue(form, key, value) {
+  if (value === undefined || value === null || value === '') return;
+  form.append(key, String(value));
+}
+
+async function stripeApiFetch(pathname, options = {}) {
+  if (!STRIPE_SECRET_KEY) throw new Error('Stripe billing is not configured.');
+  const headers = {
+    Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+    ...(options.headers || {})
+  };
+  let body;
+  if (options.form) {
+    const form = options.form instanceof URLSearchParams ? options.form : buildStripeForm(options.form);
+    body = form.toString();
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+  } else if (options.body) {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(options.body);
+  }
+
+  const response = await fetch(`https://api.stripe.com/v1${pathname}`, {
+    method: options.method || 'GET',
+    headers,
+    body
+  });
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = { raw: text };
+    }
+  }
+  if (!response.ok) {
+    const message = data?.error?.message || data?.message || `Stripe request failed (${response.status}).`;
+    throw new Error(message);
+  }
+  return data;
+}
+
+function verifyStripeWebhookSignature(payload, signatureHeader) {
+  if (!STRIPE_WEBHOOK_SECRET) throw new Error('Stripe webhook secret is not configured.');
+  const header = String(signatureHeader || '').trim();
+  if (!header) throw new Error('Missing Stripe signature header.');
+
+  const pairs = header.split(',').map(part => part.trim()).filter(Boolean);
+  const timestamp = pairs.find(part => part.startsWith('t='))?.slice(2) || '';
+  const signatures = pairs
+    .filter(part => part.startsWith('v1='))
+    .map(part => part.slice(3))
+    .filter(Boolean);
+  if (!timestamp || !signatures.length) {
+    throw new Error('Stripe signature header is invalid.');
+  }
+
+  const ageSeconds = Math.abs(Math.floor(Date.now() / 1000) - Number(timestamp));
+  if (!Number.isFinite(ageSeconds) || ageSeconds > 300) {
+    throw new Error('Stripe signature timestamp is too old.');
+  }
+
+  const expected = crypto
+    .createHmac('sha256', STRIPE_WEBHOOK_SECRET)
+    .update(`${timestamp}.${payload}`, 'utf8')
+    .digest('hex');
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+  const valid = signatures.some(signature => {
+    const actualBuffer = Buffer.from(signature, 'utf8');
+    return actualBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(actualBuffer, expectedBuffer);
+  });
+  if (!valid) throw new Error('Stripe signature verification failed.');
+}
+
 function getEncryptionKey() {
   if (!CUE_KEY_ENCRYPTION_SECRET) return null;
   return crypto.createHash('sha256').update(CUE_KEY_ENCRYPTION_SECRET).digest();
@@ -367,6 +502,229 @@ async function supabaseAdminFetch(pathname, options = {}) {
   return { response, data };
 }
 
+async function fetchSingleBillingAccount(filters = {}) {
+  if (!hasSupabaseAdmin()) return null;
+  const { data } = await supabaseAdminFetch(buildSupabaseRestPath('billing_accounts', {
+    ...filters,
+    select: 'user_id,plan_tier,plan_status,stripe_customer_id,stripe_subscription_id,current_period_end',
+    limit: 1
+  }));
+  return Array.isArray(data) ? (data[0] || null) : null;
+}
+
+async function fetchBillingAccountForUser(userId) {
+  if (!userId) return null;
+  return fetchSingleBillingAccount({ user_id: `eq.${userId}` });
+}
+
+async function fetchBillingAccountByStripeCustomer(customerId) {
+  if (!customerId) return null;
+  return fetchSingleBillingAccount({ stripe_customer_id: `eq.${customerId}` });
+}
+
+async function fetchBillingAccountByStripeSubscription(subscriptionId) {
+  if (!subscriptionId) return null;
+  return fetchSingleBillingAccount({ stripe_subscription_id: `eq.${subscriptionId}` });
+}
+
+async function upsertBillingAccountRecord(userId, patch = {}) {
+  if (!userId || !hasSupabaseAdmin()) return null;
+  const payload = {
+    user_id: userId,
+    ...patch
+  };
+  const { response, data } = await supabaseAdminFetch(
+    buildSupabaseRestPath('billing_accounts', { on_conflict: 'user_id' }),
+    {
+      method: 'POST',
+      headers: {
+        Prefer: 'resolution=merge-duplicates,return=representation'
+      },
+      body: payload
+    }
+  );
+  if (!response.ok) {
+    throw new Error(data?.message || 'Could not update billing account.');
+  }
+  return Array.isArray(data) ? (data[0] || null) : data;
+}
+
+function buildStripeForm(entries = {}) {
+  const form = new URLSearchParams();
+  Object.entries(entries).forEach(([key, value]) => {
+    appendStripeFormValue(form, key, value);
+  });
+  return form;
+}
+
+async function createStripeCustomer(user) {
+  const form = buildStripeForm({
+    email: user?.email || '',
+    name: user?.displayName || '',
+    'metadata[user_id]': user?.id || ''
+  });
+  const data = await stripeApiFetch('/customers', {
+    method: 'POST',
+    form
+  });
+  return String(data?.id || '').trim();
+}
+
+function mapStripeSubscriptionPlan(subscription) {
+  const metadataPlanCode = String(subscription?.metadata?.plan_code || '').trim().toLowerCase();
+  const metadataPlan = getStripePlanConfig(metadataPlanCode);
+  if (metadataPlan) return metadataPlan;
+  const priceId = String(subscription?.items?.data?.[0]?.price?.id || '').trim();
+  return getStripePlanByPriceId(priceId);
+}
+
+function mapStripeSubscriptionSummary(subscription, billingFallback = null) {
+  const normalizedStatus = normalizeBillingStatus(subscription?.status);
+  const plan = mapStripeSubscriptionPlan(subscription);
+  const paid = !!plan && isPaidBillingStatus(normalizedStatus);
+  return {
+    planCode: plan?.code || '',
+    planName: plan?.label || (paid ? 'Cue Private' : 'Free'),
+    planTier: paid ? plan.tier : 'free',
+    planStatus: normalizedStatus || String(billingFallback?.plan_status || 'inactive'),
+    currentPeriodEnd: toIsoFromUnixSeconds(subscription?.current_period_end) || billingFallback?.current_period_end || null,
+    stripeCustomerId: String(subscription?.customer || billingFallback?.stripe_customer_id || '').trim(),
+    stripeSubscriptionId: String(subscription?.id || billingFallback?.stripe_subscription_id || '').trim(),
+    priceId: String(subscription?.items?.data?.[0]?.price?.id || '').trim(),
+    isPaid: paid
+  };
+}
+
+async function fetchStripeSubscription(subscriptionId, { force = false } = {}) {
+  const cacheKey = String(subscriptionId || '').trim();
+  if (!cacheKey) return null;
+  const cached = stripeSubscriptionCache.get(cacheKey);
+  if (!force && cached && Date.now() - cached.fetchedAt < STRIPE_SUBSCRIPTION_CACHE_TTL_MS) {
+    return cached.subscription;
+  }
+  const data = await stripeApiFetch(`/subscriptions/${encodeURIComponent(cacheKey)}?expand[]=items.data.price`);
+  stripeSubscriptionCache.set(cacheKey, {
+    fetchedAt: Date.now(),
+    subscription: data
+  });
+  return data;
+}
+
+async function resolveBillingUserIdFromStripeRefs({ userId = '', customerId = '', subscriptionId = '' } = {}) {
+  if (userId) return userId;
+  const bySubscription = subscriptionId ? await fetchBillingAccountByStripeSubscription(subscriptionId) : null;
+  if (bySubscription?.user_id) return bySubscription.user_id;
+  const byCustomer = customerId ? await fetchBillingAccountByStripeCustomer(customerId) : null;
+  return byCustomer?.user_id || '';
+}
+
+async function syncBillingAccountFromStripeSubscriptionObject(subscription, userIdHint = '') {
+  if (!subscription) return null;
+  const customerId = String(subscription.customer || '').trim();
+  const subscriptionId = String(subscription.id || '').trim();
+  const userId = await resolveBillingUserIdFromStripeRefs({
+    userId: String(subscription?.metadata?.user_id || userIdHint || '').trim(),
+    customerId,
+    subscriptionId
+  });
+  if (!userId) return null;
+
+  stripeSubscriptionCache.set(subscriptionId, {
+    fetchedAt: Date.now(),
+    subscription
+  });
+
+  const summary = mapStripeSubscriptionSummary(subscription);
+  const paid = isPaidBillingStatus(summary.planStatus) && summary.planTier !== 'free';
+  await upsertBillingAccountRecord(userId, {
+    plan_tier: paid ? summary.planTier : 'free',
+    plan_status: summary.planStatus,
+    stripe_customer_id: summary.stripeCustomerId || null,
+    stripe_subscription_id: summary.stripeSubscriptionId || null,
+    current_period_end: summary.currentPeriodEnd
+  });
+  return summary;
+}
+
+async function syncBillingAccountFromSubscriptionId(subscriptionId, context = {}) {
+  const subscription = await fetchStripeSubscription(subscriptionId, { force: true });
+  if (!subscription) return null;
+  return syncBillingAccountFromStripeSubscriptionObject(subscription, context.userId || '');
+}
+
+async function ensureStripeCustomerForUser(user, billingAccount = null) {
+  const existingCustomerId = String(billingAccount?.stripe_customer_id || '').trim();
+  if (existingCustomerId) return existingCustomerId;
+  const customerId = await createStripeCustomer(user);
+  await upsertBillingAccountRecord(user.id, {
+    stripe_customer_id: customerId
+  });
+  return customerId;
+}
+
+async function fetchBillingStateForUser(userId) {
+  const billing = await fetchBillingAccountForUser(userId);
+  if (!billing) {
+    return {
+      enabled: hasStripeBilling(),
+      planTier: 'free',
+      planStatus: 'inactive',
+      planName: 'Free',
+      planCode: '',
+      currentPeriodEnd: null,
+      canManage: false,
+      isPaid: false
+    };
+  }
+
+  let summary = null;
+  if (hasStripeBilling() && billing.stripe_subscription_id) {
+    try {
+      const subscription = await fetchStripeSubscription(billing.stripe_subscription_id);
+      summary = mapStripeSubscriptionSummary(subscription, billing);
+    } catch (_) {}
+  }
+
+  const planTier = String(summary?.planTier || billing.plan_tier || 'free');
+  const planStatus = normalizeBillingStatus(summary?.planStatus || billing.plan_status || 'inactive');
+  const isPaid = planTier !== 'free' && isPaidBillingStatus(planStatus);
+  return {
+    enabled: hasStripeBilling(),
+    planTier,
+    planStatus,
+    planName: summary?.planName || (isPaid ? 'Cue Private' : 'Free'),
+    planCode: summary?.planCode || '',
+    currentPeriodEnd: summary?.currentPeriodEnd || billing.current_period_end || null,
+    canManage: hasStripeBilling() && !!String(summary?.stripeCustomerId || billing.stripe_customer_id || '').trim(),
+    isPaid
+  };
+}
+
+async function handleStripeWebhookEvent(event) {
+  const type = String(event?.type || '').trim();
+  if (type === 'checkout.session.completed') {
+    const session = event?.data?.object || {};
+    if (session.mode === 'subscription' && session.subscription) {
+      await syncBillingAccountFromSubscriptionId(session.subscription, {
+        userId: String(session?.metadata?.user_id || session?.client_reference_id || '').trim()
+      });
+    }
+    return;
+  }
+  if (type === 'customer.subscription.updated' || type === 'customer.subscription.deleted') {
+    await syncBillingAccountFromStripeSubscriptionObject(event?.data?.object || {});
+    return;
+  }
+  if (type === 'invoice.paid' || type === 'invoice.payment_failed') {
+    const invoice = event?.data?.object || {};
+    if (invoice.subscription) {
+      await syncBillingAccountFromSubscriptionId(invoice.subscription, {
+        userId: String(invoice?.lines?.data?.[0]?.metadata?.user_id || '').trim()
+      });
+    }
+  }
+}
+
 async function getAuthenticatedRequestState(req) {
   if (!hasSupabaseAuth()) return { user: null, setCookies: [] };
   const cookies = parseCookies(req);
@@ -390,7 +748,17 @@ async function fetchAccountStateForUser(user) {
     displayName: String(user?.displayName || '').trim(),
     email: String(user?.email || '').trim(),
     onboardingComplete: false,
-    savedKey: null
+    savedKey: null,
+    billing: {
+      enabled: hasStripeBilling(),
+      planTier: 'free',
+      planStatus: 'inactive',
+      planName: 'Free',
+      planCode: '',
+      currentPeriodEnd: null,
+      canManage: false,
+      isPaid: false
+    }
   };
   if (!user?.id || !hasSupabaseAdmin()) return fallback;
 
@@ -408,9 +776,10 @@ async function fetchAccountStateForUser(user) {
     limit: 1
   });
 
-  const [{ data: profileData }, { data: keyData }] = await Promise.all([
+  const [{ data: profileData }, { data: keyData }, billing] = await Promise.all([
     supabaseAdminFetch(profilePath),
-    supabaseAdminFetch(keyPath)
+    supabaseAdminFetch(keyPath),
+    fetchBillingStateForUser(user.id)
   ]);
 
   const profile = Array.isArray(profileData) ? profileData[0] : null;
@@ -428,7 +797,8 @@ async function fetchAccountStateForUser(user) {
     displayName: String(profile?.display_name || fallback.displayName).trim(),
     email: String(profile?.email || fallback.email).trim(),
     onboardingComplete: !!profile?.onboarding_complete,
-    savedKey
+    savedKey,
+    billing: billing || fallback.billing
   };
 }
 
@@ -682,6 +1052,24 @@ function buildGoogleOAuthCallbackPage(req) {
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method === 'POST' && req.url === '/api/webhook/stripe') {
+      if (!hasStripeWebhookSupport()) {
+        sendJson(res, 503, { error: 'Stripe webhooks are not configured.' });
+        return;
+      }
+      const payload = await readBody(req);
+      try {
+        verifyStripeWebhookSignature(payload, req.headers['stripe-signature']);
+        const event = JSON.parse(payload);
+        await handleStripeWebhookEvent(event);
+      } catch (error) {
+        sendJson(res, 400, { error: error.message || 'Invalid Stripe webhook.' });
+        return;
+      }
+      sendJson(res, 200, { received: true });
+      return;
+    }
+
     if (req.method === 'GET' && req.url.startsWith('/api/auth/google/start')) {
       if (!hasSupabaseAuth()) {
         sendJson(res, 503, { error: 'Supabase auth is not configured.' });
@@ -913,6 +1301,106 @@ const server = http.createServer(async (req, res) => {
       await deleteStoredOpenAIKey(user.id);
       const account = await fetchAccountStateForUser(user);
       sendJson(res, 200, { ok: true, account }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/billing/checkout') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site billing requests are not allowed.' });
+        return;
+      }
+      if (!hasStripeBilling()) {
+        sendJson(res, 503, { error: 'Stripe billing is not configured.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const body = await readJsonBody(req);
+      const plan = getStripePlanConfig(body.plan);
+      if (!plan || !plan.priceId) {
+        sendJson(res, 400, { error: 'Choose a valid plan.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+
+      const billingAccount = await fetchBillingAccountForUser(user.id);
+      if (billingAccount?.stripe_subscription_id && isPaidBillingStatus(billingAccount.plan_status)) {
+        const origin = getExpectedOrigin(req);
+        const portal = await stripeApiFetch('/billing_portal/sessions', {
+          method: 'POST',
+          form: buildStripeForm({
+            customer: billingAccount.stripe_customer_id,
+            return_url: `${origin}/#plans`
+          })
+        });
+        sendJson(res, 200, {
+          ok: true,
+          mode: 'portal',
+          url: portal?.url || ''
+        }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+
+      const customerId = await ensureStripeCustomerForUser(user, billingAccount);
+      const origin = getExpectedOrigin(req);
+      const session = await stripeApiFetch('/checkout/sessions', {
+        method: 'POST',
+        form: buildStripeForm({
+          mode: 'subscription',
+          customer: customerId,
+          allow_promotion_codes: 'true',
+          client_reference_id: user.id,
+          success_url: `${origin}/#plans`,
+          cancel_url: `${origin}/#plans`,
+          'metadata[user_id]': user.id,
+          'metadata[plan_code]': plan.code,
+          'subscription_data[metadata][user_id]': user.id,
+          'subscription_data[metadata][plan_code]': plan.code,
+          'line_items[0][price]': plan.priceId,
+          'line_items[0][quantity]': 1
+        })
+      });
+      sendJson(res, 200, {
+        ok: true,
+        mode: 'checkout',
+        url: session?.url || ''
+      }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/billing/portal') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site billing requests are not allowed.' });
+        return;
+      }
+      if (!hasStripeBilling()) {
+        sendJson(res, 503, { error: 'Stripe billing is not configured.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const billingAccount = await fetchBillingAccountForUser(user.id);
+      if (!billingAccount?.stripe_customer_id) {
+        sendJson(res, 400, { error: 'No Stripe billing profile exists on this account yet.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const origin = getExpectedOrigin(req);
+      const portal = await stripeApiFetch('/billing_portal/sessions', {
+        method: 'POST',
+        form: buildStripeForm({
+          customer: billingAccount.stripe_customer_id,
+          return_url: `${origin}/#plans`
+        })
+      });
+      sendJson(res, 200, {
+        ok: true,
+        url: portal?.url || ''
+      }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
       return;
     }
 

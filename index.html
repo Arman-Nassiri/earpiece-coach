@@ -207,8 +207,8 @@
           </div>
           <div class="auth-overview-card">
             <div class="auth-summary-label">Plans</div>
-            <div class="auth-overview-value">Coming Soon</div>
-            <div class="auth-overview-sub">Pro and Exotic will live on their own billing tab with managed usage and premium tools.</div>
+            <div class="auth-overview-value" id="authOverviewPlan">Free</div>
+            <div class="auth-overview-sub" id="authOverviewPlanSub">Stripe billing is ready when you want managed private usage instead of pure BYOK.</div>
           </div>
         </div>
 
@@ -258,27 +258,29 @@
     </div>
     <div class="key-top plans-key-top">
       <div class="key-title">Plans</div>
-      <div class="key-sub" id="plansSubcopy">Paid Cue plans are staged next. Pricing is shown now so the product shape is clear before checkout goes live.</div>
+      <div class="key-sub" id="plansSubcopy">Attach managed private usage to your Cue account with Stripe checkout and self-serve billing.</div>
       <div class="plans-content-stack">
         <div class="auth-screen-tabs">
           <button class="ptab" type="button" onclick="openAccountScreen()">Account</button>
           <button class="ptab active" type="button">Plans</button>
         </div>
         <div class="plans-hero-card">
-          <div class="auth-summary-label">Coming Soon</div>
-          <div class="plans-hero-title">Private accounts will support either a paid Cue plan or your own saved OpenAI key.</div>
-          <div class="plans-hero-copy" id="plansHeroCopy">Use your account now for saved-key access. Stripe checkout lands next.</div>
+          <div class="auth-summary-label" id="plansHeroEyebrow">Private Billing</div>
+          <div class="plans-hero-title" id="plansHeroTitle">Run Cue from one signed-in account with managed private usage instead of repasting BYOK every time.</div>
+          <div class="plans-hero-copy" id="plansHeroCopy">Sign in first, then pick the plan that fits how heavily you want Cue involved before, during, and after the negotiation.</div>
+          <div class="plans-hero-status" id="plansHeroStatus">Sign in to start subscription checkout.</div>
         </div>
         <div class="plans-grid">
-          <div class="plan-card">
+          <div class="plan-card" id="planCardPro">
             <div class="plan-card-top">
               <div>
                 <div class="plan-name">Pro</div>
                 <div class="plan-price">$29 <span>/ month</span></div>
               </div>
-              <div class="plan-badge">Coming Soon</div>
+              <div class="plan-badge" id="planBadgePro">Ready</div>
             </div>
             <div class="plan-desc">The main private account tier for people who want Cue as a regular negotiation operating system instead of a one-off tool.</div>
+            <div class="plan-inline-status" id="planStatusPro">Create or sign in to subscribe from your Cue account.</div>
             <ul class="plan-feature-list">
               <li>Unlimited sessions</li>
               <li>All 13 scenarios + new drops</li>
@@ -286,16 +288,20 @@
               <li>Priority response latency</li>
               <li>Early access to new features</li>
             </ul>
+            <div class="plan-card-actions">
+              <button class="btn plan-card-btn" type="button" id="planBtnPro" onclick="startPlanCheckout('pro')">Choose Pro</button>
+            </div>
           </div>
-          <div class="plan-card featured">
+          <div class="plan-card featured" id="planCardExotic">
             <div class="plan-card-top">
               <div>
                 <div class="plan-name">Exotic</div>
                 <div class="plan-price">$99 <span>/ month</span></div>
               </div>
-              <div class="plan-badge">Coming Soon</div>
+              <div class="plan-badge" id="planBadgeExotic">Premium</div>
             </div>
             <div class="plan-desc">For heavier users who want more of Cue handled for them before, during, and after the negotiation itself.</div>
+            <div class="plan-inline-status" id="planStatusExotic">Use the same Cue account and move up when you want a heavier private setup.</div>
             <ul class="plan-feature-list">
               <li>Everything in Pro</li>
               <li>Pre-negotiation strategy builder (AI-generated brief)</li>
@@ -303,17 +309,22 @@
               <li>Custom scenario creation</li>
               <li>Dedicated support</li>
             </ul>
+            <div class="plan-card-actions">
+              <button class="btn plan-card-btn" type="button" id="planBtnExotic" onclick="startPlanCheckout('exotic')">Choose Exotic</button>
+            </div>
           </div>
         </div>
         <div class="plans-note-card">
-          <div class="auth-summary-label">How Access Will Work</div>
-          <div class="plans-note-copy">When plans launch, paid accounts will use Cue-managed usage. Private accounts that prefer BYOK will still be able to save and reuse their own encrypted OpenAI key instead.</div>
+          <div class="auth-summary-label">How Access Works</div>
+          <div class="plans-note-copy" id="plansNoteCopy">Free accounts still unlock the full scenario library. Paid plans are for people who want managed private usage and deeper Cue support attached to one account.</div>
         </div>
       </div>
     </div>
     <div class="auth-actions auth-actions-card plans-actions">
       <button class="btn ghost" type="button" onclick="openAccountScreen()">Back to Account</button>
-      <button class="btn" type="button" disabled>Checkout Coming Soon</button>
+      <button class="btn ghost" type="button" id="plansRefreshBtn" onclick="refreshPlanStatus()">Refresh Plan Status</button>
+      <button class="btn" type="button" id="plansManageBtn" style="display:none;" onclick="openBillingPortal()">Manage Billing</button>
+      <div class="key-verify-status" id="plansStatus"></div>
     </div>
   </div>
 </div>
