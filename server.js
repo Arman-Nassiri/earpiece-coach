@@ -2,6 +2,9 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
+loadEnvFile(path.join(__dirname, '.env.local'));
+loadEnvFile(path.join(__dirname, '.env'));
+
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '127.0.0.1';
 const ROOT = __dirname;
@@ -9,8 +12,14 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const ALLOW_SERVER_KEY_LIVE = /^(1|true|yes)$/i.test(process.env.ALLOW_SERVER_KEY_LIVE || '');
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime';
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe';
+const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
+const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();
+const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
 const liveCallWindows = new Map();
 const ALLOWED_REALTIME_MODELS = new Set(['gpt-realtime', 'gpt-realtime-mini']);
+const ACCESS_COOKIE = 'cue_sb_at';
+const REFRESH_COOKIE = 'cue_sb_rt';
+const REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -20,6 +29,25 @@ const MIME_TYPES = {
   '.png': 'image/png',
   '.svg': 'image/svg+xml; charset=utf-8'
 };
+
+function loadEnvFile(filePath) {
+  try {
+    const raw = fs.readFileSync(filePath, 'utf8');
+    raw.split(/\r?\n/).forEach(line => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return;
+      const eq = trimmed.indexOf('=');
+      if (eq <= 0) return;
+      const key = trimmed.slice(0, eq).trim();
+      if (!key || process.env[key] !== undefined) return;
+      let value = trimmed.slice(eq + 1).trim();
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
+    });
+  } catch (_) {}
+}
 
 function buildSecurityHeaders(extra = {}) {
   return {
@@ -40,6 +68,10 @@ function sendJson(res, statusCode, payload, extraHeaders = {}) {
   res.end(JSON.stringify(payload));
 }
 
+function hasSupabaseAuth() {
+  return !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -54,6 +86,17 @@ function readBody(req) {
     req.on('end', () => resolve(data));
     req.on('error', reject);
   });
+}
+
+async function readJsonBody(req) {
+  const raw = await readBody(req);
+  if (!raw.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (_) {
+    throw new Error('Invalid JSON body');
+  }
 }
 
 async function serveFile(filePath, res) {
@@ -84,12 +127,149 @@ function getExpectedOrigin(req) {
   return host ? `${proto}://${host}` : '';
 }
 
+function getCookieDomain(req) {
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  return host && !host.includes('localhost') && !host.startsWith('127.0.0.1') ? host.split(':')[0] : '';
+}
+
 function isAllowedLiveRequest(req) {
   const secFetchSite = String(req.headers['sec-fetch-site'] || '').toLowerCase();
   if (secFetchSite && !['same-origin', 'same-site', 'none'].includes(secFetchSite)) return false;
   const origin = String(req.headers.origin || '').trim();
   if (!origin) return true;
   return origin === getExpectedOrigin(req);
+}
+
+function isAllowedSameOriginRequest(req) {
+  const secFetchSite = String(req.headers['sec-fetch-site'] || '').toLowerCase();
+  if (secFetchSite && !['same-origin', 'same-site', 'none'].includes(secFetchSite)) return false;
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return true;
+  return origin === getExpectedOrigin(req);
+}
+
+function parseCookies(req) {
+  const header = String(req.headers.cookie || '');
+  if (!header) return {};
+  return Object.fromEntries(
+    header
+      .split(';')
+      .map(part => {
+        const idx = part.indexOf('=');
+        if (idx <= 0) return null;
+        const key = part.slice(0, idx).trim();
+        const value = part.slice(idx + 1).trim();
+        return [key, decodeURIComponent(value)];
+      })
+      .filter(Boolean)
+  );
+}
+
+function serializeCookie(name, value, req, options = {}) {
+  const segments = [`${name}=${encodeURIComponent(value)}`];
+  segments.push('Path=/');
+  segments.push('HttpOnly');
+  segments.push('SameSite=Lax');
+  if (HOST !== '127.0.0.1' || (req.headers['x-forwarded-proto'] || '').includes('https')) {
+    segments.push('Secure');
+  }
+  const domain = getCookieDomain(req);
+  if (domain) segments.push(`Domain=${domain}`);
+  if (typeof options.maxAge === 'number') segments.push(`Max-Age=${Math.max(0, Math.floor(options.maxAge))}`);
+  if (options.expires instanceof Date) segments.push(`Expires=${options.expires.toUTCString()}`);
+  return segments.join('; ');
+}
+
+function clearAuthCookies(req) {
+  const expires = new Date(0);
+  return [
+    serializeCookie(ACCESS_COOKIE, '', req, { maxAge: 0, expires }),
+    serializeCookie(REFRESH_COOKIE, '', req, { maxAge: 0, expires })
+  ];
+}
+
+function setAuthCookies(req, session) {
+  const accessTtl = Number(session?.expires_in || 3600);
+  const accessToken = String(session?.access_token || '').trim();
+  const refreshToken = String(session?.refresh_token || '').trim();
+  const now = Date.now();
+  return [
+    serializeCookie(ACCESS_COOKIE, accessToken, req, {
+      maxAge: Math.max(60, accessTtl),
+      expires: new Date(now + Math.max(60, accessTtl) * 1000)
+    }),
+    serializeCookie(REFRESH_COOKIE, refreshToken, req, {
+      maxAge: REFRESH_COOKIE_MAX_AGE,
+      expires: new Date(now + REFRESH_COOKIE_MAX_AGE * 1000)
+    })
+  ];
+}
+
+function mapAuthUser(user) {
+  if (!user || typeof user !== 'object') return null;
+  return {
+    id: String(user.id || ''),
+    email: String(user.email || ''),
+    emailConfirmedAt: user.email_confirmed_at || null,
+    createdAt: user.created_at || null,
+    displayName: String(user.user_metadata?.display_name || user.user_metadata?.full_name || '').trim()
+  };
+}
+
+async function supabaseAuthFetch(pathname, options = {}) {
+  if (!hasSupabaseAuth()) throw new Error('Supabase auth is not configured.');
+  const headers = {
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  };
+  const response = await fetch(`${SUPABASE_URL}${pathname}`, {
+    method: options.method || 'GET',
+    headers,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = { raw: text };
+    }
+  }
+  return { response, data };
+}
+
+async function fetchSupabaseUser(accessToken) {
+  if (!accessToken) return null;
+  const { response, data } = await supabaseAuthFetch('/auth/v1/user', {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+  if (!response.ok) return null;
+  return mapAuthUser(data);
+}
+
+async function refreshSupabaseSession(refreshToken) {
+  if (!refreshToken) return null;
+  const { response, data } = await supabaseAuthFetch('/auth/v1/token?grant_type=refresh_token', {
+    method: 'POST',
+    body: {
+      refresh_token: refreshToken
+    }
+  });
+  if (!response.ok) return null;
+  return data;
+}
+
+function validateEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function validatePassword(password) {
+  return typeof password === 'string' && password.length >= 8 && password.length <= 128;
 }
 
 function consumeLiveRateLimit(req) {
@@ -148,6 +328,139 @@ async function createRealtimeCall(offerSdp, apiKey, realtimeModel = REALTIME_MOD
 
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method === 'GET' && req.url === '/api/auth/session') {
+      if (!hasSupabaseAuth()) {
+        sendJson(res, 200, { authenticated: false, configured: false });
+        return;
+      }
+      const cookies = parseCookies(req);
+      let accessToken = cookies[ACCESS_COOKIE] || '';
+      let refreshToken = cookies[REFRESH_COOKIE] || '';
+      let user = await fetchSupabaseUser(accessToken);
+      let setCookies = [];
+      if (!user && refreshToken) {
+        const refreshed = await refreshSupabaseSession(refreshToken);
+        if (refreshed?.access_token && refreshed?.refresh_token) {
+          accessToken = refreshed.access_token;
+          refreshToken = refreshed.refresh_token;
+          setCookies = setAuthCookies(req, refreshed);
+          user = await fetchSupabaseUser(accessToken);
+        }
+      }
+      if (!user) {
+        sendJson(res, 200, { authenticated: false, configured: true }, {
+          'Set-Cookie': clearAuthCookies(req)
+        });
+        return;
+      }
+      sendJson(res, 200, {
+        authenticated: true,
+        configured: true,
+        user
+      }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/auth/signup') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site auth requests are not allowed.' });
+        return;
+      }
+      if (!hasSupabaseAuth()) {
+        sendJson(res, 503, { error: 'Supabase auth is not configured.' });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const email = String(body.email || '').trim().toLowerCase();
+      const password = String(body.password || '');
+      const displayName = String(body.displayName || '').trim().slice(0, 80);
+      if (!validateEmail(email)) {
+        sendJson(res, 400, { error: 'Enter a valid email address.' });
+        return;
+      }
+      if (!validatePassword(password)) {
+        sendJson(res, 400, { error: 'Password must be at least 8 characters.' });
+        return;
+      }
+      const { response, data } = await supabaseAuthFetch('/auth/v1/signup', {
+        method: 'POST',
+        body: {
+          email,
+          password,
+          data: displayName ? { display_name: displayName } : {}
+        }
+      });
+      if (!response.ok) {
+        sendJson(res, response.status, { error: data?.msg || data?.error_description || data?.message || 'Could not create account.' });
+        return;
+      }
+      const session = data?.session || null;
+      const user = mapAuthUser(data?.user);
+      sendJson(res, 200, {
+        ok: true,
+        requiresEmailVerification: !session,
+        user
+      }, session ? { 'Set-Cookie': setAuthCookies(req, session) } : {});
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/auth/signin') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site auth requests are not allowed.' });
+        return;
+      }
+      if (!hasSupabaseAuth()) {
+        sendJson(res, 503, { error: 'Supabase auth is not configured.' });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const email = String(body.email || '').trim().toLowerCase();
+      const password = String(body.password || '');
+      if (!validateEmail(email) || !password) {
+        sendJson(res, 400, { error: 'Enter your email and password.' });
+        return;
+      }
+      const { response, data } = await supabaseAuthFetch('/auth/v1/token?grant_type=password', {
+        method: 'POST',
+        body: {
+          email,
+          password
+        }
+      });
+      if (!response.ok) {
+        sendJson(res, response.status, { error: data?.msg || data?.error_description || data?.message || 'Could not sign in.' });
+        return;
+      }
+      sendJson(res, 200, {
+        ok: true,
+        user: mapAuthUser(data?.user)
+      }, { 'Set-Cookie': setAuthCookies(req, data) });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/auth/signout') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site auth requests are not allowed.' });
+        return;
+      }
+      const cookies = parseCookies(req);
+      const accessToken = cookies[ACCESS_COOKIE] || '';
+      if (accessToken && hasSupabaseAuth()) {
+        try {
+          await supabaseAuthFetch('/auth/v1/logout', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`
+            }
+          });
+        } catch (_) {}
+      }
+      sendJson(res, 200, { ok: true }, {
+        'Set-Cookie': clearAuthCookies(req)
+      });
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/api/live/call') {
       if (!isAllowedLiveRequest(req)) {
         sendJson(res, 403, { error: 'Cross-site live requests are not allowed.' });

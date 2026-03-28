@@ -44,6 +44,7 @@
     </div>
     <div class="launch-actions">
       <button class="btn" onclick="go('s-key')">Get started</button>
+      <button class="icon-btn contact-btn" onclick="openAccountScreen()" title="Account">Account</button>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       <button class="icon-btn" id="themeBtnLaunch" onclick="toggleTheme()">&#9788;</button>
     </div>
@@ -56,6 +57,7 @@
   <div class="key-inner">
     <div class="key-back-row">
       <div class="key-back" onclick="go('s-launch')">&#8592;</div>
+      <button class="icon-btn contact-btn" onclick="openAccountScreen()" title="Account">Account</button>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
     </div>
     <div class="key-top">
@@ -112,6 +114,63 @@
   </div>
 </div>
 
+<!-- S-AUTH -->
+<div class="screen" id="s-auth">
+  <div class="key-inner auth-inner">
+    <div class="key-back-row">
+      <div class="key-back" onclick="go('s-launch')">&#8592;</div>
+      <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
+    </div>
+    <div class="key-top">
+      <div class="key-title">Your Account</div>
+      <div class="key-sub" id="authSubcopy">Secure sign-in for Cue. Billing and saved API keys will live here.</div>
+
+      <div id="authSignedOut">
+        <div class="provider-tabs auth-tabs">
+          <button class="ptab active" id="authTabSignin" type="button" onclick="setAuthMode('signin')">Sign In</button>
+          <button class="ptab" id="authTabSignup" type="button" onclick="setAuthMode('signup')">Create Account</button>
+        </div>
+
+        <div id="authNameRow" style="display:none; margin-top:18px;">
+          <div class="field-label">Display Name</div>
+          <input class="field-input" id="authDisplayName" type="text" placeholder="Your name" autocomplete="name" spellcheck="false"/>
+        </div>
+
+        <div class="field-label" style="margin-top:18px;">Email</div>
+        <input class="field-input" id="authEmail" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false"/>
+
+        <div class="field-label" style="margin-top:18px;">Password</div>
+        <input class="field-input" id="authPassword" type="password" placeholder="At least 8 characters" autocomplete="current-password" spellcheck="false"/>
+
+        <div class="security-badge" style="margin-top:14px;">
+          <div class="security-badge-text">
+            <strong>Cookie-backed sessions.</strong> Cue keeps account sessions on secure HTTP-only cookies instead of browser local storage.
+          </div>
+        </div>
+        <p class="key-note" id="authNote">Create an account first. Plan checkout and saved BYOK storage will attach to this identity.</p>
+      </div>
+
+      <div class="auth-summary-card" id="authSignedIn" style="display:none;">
+        <div class="auth-summary-label">Signed In</div>
+        <div class="auth-summary-email" id="authSummaryEmail">—</div>
+        <div class="auth-summary-meta" id="authSummaryMeta">Checking account status...</div>
+        <div class="security-badge" style="margin-top:18px; margin-bottom:0;">
+          <div class="security-badge-text">
+            <strong>Next step.</strong> Billing plans and saved personal API keys will hang off this account so your setup follows you when you log in.
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="auth-actions">
+      <button class="btn" id="authPrimaryBtn" onclick="submitAuth()">Create Account</button>
+      <button class="btn ghost" id="authSecondaryBtn" onclick="handleAuthSecondary()">Already have an account?</button>
+      <button class="btn ghost" id="authContinueBtn" style="display:none;" onclick="continueFromAccount()">Continue to Cue</button>
+      <button class="btn ghost" id="authSignoutBtn" style="display:none;" onclick="signOutAccount()">Sign Out</button>
+      <div class="key-verify-status" id="authStatus"></div>
+    </div>
+  </div>
+</div>
+
 
 <!-- S1: HOME -->
 <div class="screen" id="s-home">
@@ -121,6 +180,7 @@
       <div class="home-sub">What are you walking into?</div>
     </div>
     <div class="home-sidebar-actions">
+      <button class="icon-btn contact-btn" onclick="openAccountScreen()" title="Account" id="accountHomeBtn">Account</button>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
       <button class="icon-btn" onclick="changeKey()" title="Change API key">&#8644;</button>

@@ -520,6 +520,13 @@ let liveLastAssistantLine = '';
 let liveLastAssistantAt = 0;
 let practiceReviewState = null;
 let liveRealtimeModel = 'gpt-realtime';
+let authMode = 'signin';
+let authState = {
+  configured: false,
+  checked: false,
+  authenticated: false,
+  user: null
+};
 
 const REALTIME_MODELS = {
   'gpt-realtime': {
@@ -536,6 +543,7 @@ const SESSION_STATE_KEY = 'gc-session-v1';
 const SCREEN_ROUTE_MAP = {
   's-launch': 'launch',
   's-key': 'key',
+  's-auth': 'auth',
   's-home': 'home',
   's-prep': 'prep',
   's-practice': 'practice',
@@ -792,6 +800,198 @@ function openContact(event) {
   if (isMobile) return;
   event.preventDefault();
   window.open('https://mail.google.com/mail/?view=cm&fs=1&tf=1&to=gibselcue@gmail.com', '_blank', 'noopener');
+}
+
+function setAuthStatus(message = '', kind = '') {
+  const el = document.getElementById('authStatus');
+  if (!el) return;
+  el.textContent = message;
+  el.className = 'key-verify-status' + (kind ? ` ${kind}` : '');
+}
+
+function getAuthDisplayCopy() {
+  const displayName = String(authState.user?.displayName || '').trim();
+  if (displayName) return displayName;
+  const email = String(authState.user?.email || '').trim();
+  return email ? email.split('@')[0].slice(0, 14) : 'Account';
+}
+
+function renderAuthState() {
+  const signedOut = document.getElementById('authSignedOut');
+  const signedIn = document.getElementById('authSignedIn');
+  const nameRow = document.getElementById('authNameRow');
+  const primaryBtn = document.getElementById('authPrimaryBtn');
+  const secondaryBtn = document.getElementById('authSecondaryBtn');
+  const continueBtn = document.getElementById('authContinueBtn');
+  const signoutBtn = document.getElementById('authSignoutBtn');
+  const summaryEmail = document.getElementById('authSummaryEmail');
+  const summaryMeta = document.getElementById('authSummaryMeta');
+  const note = document.getElementById('authNote');
+  const subcopy = document.getElementById('authSubcopy');
+  const tabSignin = document.getElementById('authTabSignin');
+  const tabSignup = document.getElementById('authTabSignup');
+  const accountButtons = [
+    document.getElementById('accountHomeBtn')
+  ].filter(Boolean);
+
+  accountButtons.forEach(btn => {
+    btn.textContent = authState.authenticated ? getAuthDisplayCopy() : 'Account';
+  });
+
+  if (tabSignin) tabSignin.classList.toggle('active', authMode === 'signin');
+  if (tabSignup) tabSignup.classList.toggle('active', authMode === 'signup');
+
+  if (signedOut) signedOut.style.display = authState.authenticated ? 'none' : 'block';
+  if (signedIn) signedIn.style.display = authState.authenticated ? 'block' : 'none';
+  if (nameRow) nameRow.style.display = authState.authenticated || authMode !== 'signup' ? 'none' : 'block';
+
+  if (subcopy) {
+    subcopy.textContent = authState.authenticated
+      ? 'Your Cue identity is active. Billing plans and saved API keys will attach here next.'
+      : 'Secure sign-in for Cue. Billing and saved API keys will live here.';
+  }
+  if (note) {
+    note.textContent = authMode === 'signin'
+      ? 'Sign in to your Cue account. Saved personal keys and plan access will plug in here next.'
+      : 'Create your Cue account first. Plan checkout and saved BYOK storage will attach to this identity.';
+  }
+
+  if (primaryBtn) {
+    primaryBtn.style.display = authState.authenticated ? 'none' : 'block';
+    primaryBtn.textContent = authMode === 'signin' ? 'Sign In' : 'Create Account';
+  }
+  if (secondaryBtn) {
+    secondaryBtn.style.display = authState.authenticated ? 'none' : 'block';
+    secondaryBtn.textContent = authMode === 'signin' ? 'Need an account?' : 'Already have an account?';
+  }
+  if (continueBtn) continueBtn.style.display = authState.authenticated ? 'block' : 'none';
+  if (signoutBtn) signoutBtn.style.display = authState.authenticated ? 'block' : 'none';
+
+  if (summaryEmail) summaryEmail.textContent = authState.user?.email || '—';
+  if (summaryMeta) {
+    if (!authState.authenticated) {
+      summaryMeta.textContent = 'Checking account status...';
+    } else if (authState.user?.emailConfirmedAt) {
+      summaryMeta.textContent = 'Email verified. Account session is active.';
+    } else {
+      summaryMeta.textContent = 'Email not verified yet. Check your inbox, then sign in again once confirmed.';
+    }
+  }
+}
+
+function setAuthMode(mode) {
+  authMode = mode === 'signin' ? 'signin' : 'signup';
+  setAuthStatus('', '');
+  renderAuthState();
+}
+
+function openAccountScreen() {
+  renderAuthState();
+  go('s-auth');
+  if (!authState.checked) refreshAuthState({ silent: true });
+}
+
+function continueFromAccount() {
+  go(SecureStore.has() ? 's-home' : 's-key');
+}
+
+function handleAuthSecondary() {
+  setAuthMode(authMode === 'signin' ? 'signup' : 'signin');
+}
+
+async function authRequest(path, options = {}) {
+  const response = await fetch(path, {
+    method: options.method || 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options.headers || {})
+    },
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  let data = {};
+  try {
+    data = await response.json();
+  } catch (_) {}
+  if (!response.ok) throw new Error(data?.error || 'Account request failed.');
+  return data;
+}
+
+async function refreshAuthState({ silent = false } = {}) {
+  if (!silent) setAuthStatus('Checking session…', 'spin');
+  try {
+    const response = await fetch('/api/auth/session', {
+      credentials: 'same-origin',
+      cache: 'no-store'
+    });
+    const data = await response.json();
+    authState = {
+      configured: !!data?.configured,
+      checked: true,
+      authenticated: !!data?.authenticated,
+      user: data?.user || null
+    };
+    if (!silent) setAuthStatus(authState.authenticated ? 'Session active' : '', authState.authenticated ? 'ok' : '');
+  } catch (_) {
+    authState = {
+      configured: false,
+      checked: true,
+      authenticated: false,
+      user: null
+    };
+    if (!silent) setAuthStatus('Could not reach account service.', 'fail');
+  }
+  renderAuthState();
+}
+
+async function submitAuth() {
+  const email = (document.getElementById('authEmail')?.value || '').trim();
+  const password = document.getElementById('authPassword')?.value || '';
+  const displayName = (document.getElementById('authDisplayName')?.value || '').trim();
+  if (!email || !password) {
+    setAuthStatus('Enter your email and password.', 'fail');
+    return;
+  }
+  if (authMode === 'signup' && password.length < 8) {
+    setAuthStatus('Password must be at least 8 characters.', 'fail');
+    return;
+  }
+  const primaryBtn = document.getElementById('authPrimaryBtn');
+  if (primaryBtn) primaryBtn.disabled = true;
+  setAuthStatus(authMode === 'signin' ? 'Signing in…' : 'Creating account…', 'spin');
+  try {
+    const data = await authRequest(authMode === 'signin' ? '/api/auth/signin' : '/api/auth/signup', {
+      body: { email, password, displayName }
+    });
+    if (authMode === 'signup' && data?.requiresEmailVerification) {
+      setAuthMode('signin');
+      setAuthStatus('Account created. Check your email, confirm it, then sign in.', 'ok');
+    } else {
+      setAuthStatus(authMode === 'signin' ? 'Signed in' : 'Account created', 'ok');
+    }
+    await refreshAuthState({ silent: true });
+  } catch (error) {
+    setAuthStatus(error.message || 'Could not complete account action.', 'fail');
+  } finally {
+    if (primaryBtn) primaryBtn.disabled = false;
+  }
+}
+
+async function signOutAccount() {
+  setAuthStatus('Signing out…', 'spin');
+  try {
+    await authRequest('/api/auth/signout', { body: {} });
+    authState = {
+      configured: authState.configured,
+      checked: true,
+      authenticated: false,
+      user: null
+    };
+    renderAuthState();
+    setAuthStatus('Signed out', 'ok');
+  } catch (error) {
+    setAuthStatus(error.message || 'Could not sign out.', 'fail');
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3282,7 +3482,7 @@ function renderChatState() {
 function getRestoredScreenId(snapshot) {
   const requested = getScreenForRoute() || snapshot?.activeScreen || (SecureStore.has() ? 's-home' : 's-launch');
   if (!SecureStore.has()) {
-    return requested === 's-key' ? 's-key' : 's-launch';
+    return ['s-key', 's-auth'].includes(requested) ? requested : 's-launch';
   }
   if (!currentSC && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(requested)) {
     return 's-home';
@@ -3294,6 +3494,10 @@ function restoreScreenFromSession(screenId) {
   switch (screenId) {
     case 's-key':
       go('s-key', { replaceHash: true });
+      return;
+    case 's-auth':
+      renderAuthState();
+      go('s-auth', { replaceHash: true });
       return;
     case 's-home':
       syncSelectedScenarioCard();
@@ -3340,8 +3544,9 @@ function restoreSessionState() {
   const snapshot = loadSessionSnapshot();
   if (!snapshot) {
     const requested = getScreenForRoute();
-    if (requested === 's-key') {
-      go('s-key', { replaceHash: true });
+    if (requested === 's-key' || requested === 's-auth') {
+      if (requested === 's-auth') renderAuthState();
+      go(requested, { replaceHash: true });
       return;
     }
     updateRouteHash(getActiveScreenId(), true);
@@ -3392,7 +3597,7 @@ window.addEventListener('hashchange', () => {
   const target = getScreenForRoute();
   if (!target || target === getActiveScreenId()) return;
   if (!SecureStore.has()) {
-    go(target === 's-key' ? 's-key' : 's-launch', { replaceHash: true });
+    go(['s-key', 's-auth'].includes(target) ? target : 's-launch', { replaceHash: true });
     return;
   }
   if (!currentSC && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(target)) {
@@ -3428,8 +3633,31 @@ document.addEventListener('DOMContentLoaded', () => {});
   });
 })();
 
+(function initAuthInputs() {
+  const email = document.getElementById('authEmail');
+  const password = document.getElementById('authPassword');
+  const displayName = document.getElementById('authDisplayName');
+  if (displayName) {
+    displayName.addEventListener('keydown', e => {
+      if (e.key === 'Enter') email?.focus();
+    });
+  }
+  if (email) {
+    email.addEventListener('keydown', e => {
+      if (e.key === 'Enter') password?.focus();
+    });
+  }
+  if (password) {
+    password.addEventListener('keydown', e => {
+      if (e.key === 'Enter') submitAuth();
+    });
+  }
+})();
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CLEANUP
 // ─────────────────────────────────────────────────────────────────────────────
+setAuthMode('signin');
+refreshAuthState({ silent: true });
 startSessionPersistence();
 restoreSessionState();
