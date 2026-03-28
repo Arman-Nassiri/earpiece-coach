@@ -578,6 +578,7 @@ const SCREEN_ROUTE_MAP = {
   's-launch': 'launch',
   's-key': 'key',
   's-auth': 'auth',
+  's-plans': 'plans',
   's-home': 'home',
   's-prep': 'prep',
   's-practice': 'practice',
@@ -894,6 +895,8 @@ function syncSavedKeyUI() {
 function renderAuthState() {
   const signedOut = document.getElementById('authSignedOut');
   const signedIn = document.getElementById('authSignedIn');
+  const overviewStrip = document.getElementById('authOverviewStrip');
+  const overviewKey = document.getElementById('authOverviewKey');
   const nameRow = document.getElementById('authNameRow');
   const primaryBtn = document.getElementById('authPrimaryBtn');
   const secondaryBtn = document.getElementById('authSecondaryBtn');
@@ -922,6 +925,7 @@ function renderAuthState() {
 
   if (signedOut) signedOut.style.display = authState.authenticated ? 'none' : 'block';
   if (signedIn) signedIn.style.display = authState.authenticated ? 'block' : 'none';
+  if (overviewStrip) overviewStrip.style.display = authState.authenticated ? 'grid' : 'none';
   if (settingsGrid) settingsGrid.style.display = authState.authenticated ? 'grid' : 'none';
   if (nameRow) nameRow.style.display = authState.authenticated || authMode !== 'signup' ? 'none' : 'block';
 
@@ -958,6 +962,11 @@ function renderAuthState() {
     }
   }
   if (profileInput) profileInput.value = authState.account?.displayName || '';
+  if (overviewKey) {
+    overviewKey.textContent = accountHasSavedOpenAIKey()
+      ? `•••• ${authState.account.savedKey.last4}`
+      : 'No saved key yet';
+  }
   if (keyState) {
     keyState.textContent = accountHasSavedOpenAIKey()
       ? `OpenAI key ending in ${authState.account.savedKey.last4}. ${formatSavedKeyTimestamp(authState.account.savedKey.updatedAt)}`
@@ -976,6 +985,27 @@ function setAuthMode(mode) {
 function openAccountScreen() {
   renderAuthState();
   go('s-auth');
+  if (!authState.checked) refreshAuthState({ silent: true });
+}
+
+function renderPlansState() {
+  const subcopy = document.getElementById('plansSubcopy');
+  const heroCopy = document.getElementById('plansHeroCopy');
+  if (subcopy) {
+    subcopy.textContent = authState.authenticated
+      ? 'Your account is ready. Paid Cue plans are shown here now so the offer is clear before checkout goes live.'
+      : 'Paid Cue plans are staged next. You can already create an account or save your own key while checkout stays offline.';
+  }
+  if (heroCopy) {
+    heroCopy.textContent = authState.authenticated
+      ? 'Your account is active. Once billing opens, plan access will attach directly to this identity with no extra setup.'
+      : 'Create an account first and you will be ready for plan checkout as soon as payments go live.';
+  }
+}
+
+function openPlansScreen() {
+  renderPlansState();
+  go('s-plans');
   if (!authState.checked) refreshAuthState({ silent: true });
 }
 
@@ -1054,6 +1084,7 @@ async function refreshAuthState({ silent = false } = {}) {
     if (!silent) setAuthStatus('Could not reach account service.', 'fail');
   }
   renderAuthState();
+  renderPlansState();
 }
 
 async function submitAuth() {
@@ -1106,6 +1137,7 @@ async function signOutAccount() {
       account: null
     };
     renderAuthState();
+    renderPlansState();
     setAuthStatus('Signed out', 'ok');
     setAccountSettingsStatus('', '');
   } catch (error) {
@@ -3679,6 +3711,7 @@ function renderChatState() {
 
 function getRestoredScreenId(snapshot) {
   const requested = getScreenForRoute() || snapshot?.activeScreen || (hasAppAccessCredential() ? 's-home' : 's-launch');
+  if (requested === 's-plans') return 's-plans';
   if (!hasAppAccessCredential()) {
     return ['s-key', 's-auth'].includes(requested) ? requested : 's-launch';
   }
@@ -3696,6 +3729,10 @@ function restoreScreenFromSession(screenId) {
     case 's-auth':
       renderAuthState();
       go('s-auth', { replaceHash: true });
+      return;
+    case 's-plans':
+      renderPlansState();
+      go('s-plans', { replaceHash: true });
       return;
     case 's-home':
       syncSelectedScenarioCard();
@@ -3742,8 +3779,9 @@ function restoreSessionState() {
   const snapshot = loadSessionSnapshot();
   if (!snapshot) {
     const requested = getScreenForRoute();
-    if (requested === 's-key' || requested === 's-auth') {
+    if (requested === 's-key' || requested === 's-auth' || requested === 's-plans') {
       if (requested === 's-auth') renderAuthState();
+      if (requested === 's-plans') renderPlansState();
       go(requested, { replaceHash: true });
       return;
     }
@@ -3795,6 +3833,10 @@ window.addEventListener('hashchange', () => {
   if (isRestoringSession) return;
   const target = getScreenForRoute();
   if (!target || target === getActiveScreenId()) return;
+  if (target === 's-plans') {
+    restoreScreenFromSession(target);
+    return;
+  }
   if (!hasAppAccessCredential()) {
     go(['s-key', 's-auth'].includes(target) ? target : 's-launch', { replaceHash: true });
     return;

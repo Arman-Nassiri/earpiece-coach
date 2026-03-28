@@ -72,15 +72,15 @@ html, body {
 @media (max-width: 767px) {
   .screen { min-height: var(--app-height); }
 }
-#s-launch, #s-key, #s-auth, #s-gate { transform: translateY(16px); }
-#s-launch.active, #s-key.active, #s-auth.active, #s-gate.active { transform: translateY(0); }
+#s-launch, #s-key, #s-auth, #s-plans, #s-gate { transform: translateY(16px); }
+#s-launch.active, #s-key.active, #s-auth.active, #s-plans.active, #s-gate.active { transform: translateY(0); }
 .screen.active { opacity: 1; pointer-events: all; transform: translateX(0); }
 .screen.leaving {
   opacity: 0; transform: translateX(-30%);
   transition: opacity 0.22s var(--ease), transform 0.25s var(--ease);
   pointer-events: none;
 }
-#s-launch.leaving, #s-key.leaving, #s-auth.leaving, #s-gate.leaving { transform: translateY(-14px); }
+#s-launch.leaving, #s-key.leaving, #s-auth.leaving, #s-plans.leaving, #s-gate.leaving { transform: translateY(-14px); }
 
 /* ── SHARED ── */
 .field-label {
@@ -200,11 +200,11 @@ html, body {
    DESKTOP: entry screens — full bleed, no phone card
 ───────────────────────────────────────────────────── */
 @media (min-width: 768px) {
-  #s-launch, #s-key, #s-auth, #s-gate {
+  #s-launch, #s-key, #s-auth, #s-plans, #s-gate {
     align-items: center;
     justify-content: center;
   }
-  .launch-inner, .key-inner, .gate-inner {
+  .launch-inner, .key-inner, .plans-inner, .gate-inner {
     max-width: 480px; width: 100%;
     flex: unset;
     padding: 48px 40px !important;
@@ -213,6 +213,12 @@ html, body {
   .wordmark-sub { margin-bottom: 40px; }
   .key-top { flex: unset; }
   .gate-top { flex: unset; margin-bottom: 24px; }
+  .auth-inner {
+    max-width: 760px;
+  }
+  .plans-inner {
+    max-width: 980px;
+  }
 }
 
 /* ─────────────────────────────────────────────────────
@@ -271,7 +277,7 @@ html, body {
 /* ─────────────────────────────────────────────────────
    S-KEY
 ───────────────────────────────────────────────────── */
-#s-key, #s-auth { align-items: center; justify-content: flex-end; padding: 0; }
+#s-key, #s-auth, #s-plans { align-items: center; justify-content: flex-end; padding: 0; }
 .key-inner {
   width: 100%; max-width: 480px;
   padding: var(--top-safe-gap) 28px calc(var(--sab) + 44px);
@@ -343,7 +349,42 @@ html, body {
 .key-verify-status.ok   { color: var(--green); }
 .key-verify-status.fail { color: var(--live); }
 .key-verify-status.spin { color: var(--text3); }
+.auth-screen-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
 .auth-tabs { margin-top: 4px; }
+.auth-panel,
+.plans-hero-card,
+.plans-note-card {
+  margin-top: 14px;
+  padding: 18px;
+  border-radius: var(--r);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+}
+.auth-panel-head {
+  margin-bottom: 18px;
+}
+.auth-panel-title {
+  font-family: 'Instrument Serif', serif;
+  font-size: 24px;
+  line-height: 1.08;
+  color: var(--text);
+}
+.auth-panel-sub {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text2);
+}
+.auth-form-grid {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
 .auth-inner .auth-actions {
   display: flex;
   flex-direction: column;
@@ -389,6 +430,28 @@ html, body {
   border: 1.5px solid var(--border);
   background: var(--surface);
 }
+.auth-overview-strip {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.auth-overview-card {
+  padding: 16px 17px;
+  border-radius: var(--r);
+  border: 1.5px solid var(--border);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg2) 100%);
+}
+.auth-overview-value {
+  font-size: 18px;
+  line-height: 1.3;
+  color: var(--text);
+}
+.auth-overview-sub {
+  margin-top: 7px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text2);
+}
 .auth-settings-grid {
   display: grid;
   gap: 12px;
@@ -414,7 +477,119 @@ html, body {
   line-height: 1.6;
   color: var(--text2);
 }
+.auth-card-intro {
+  margin-bottom: 16px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text2);
+}
+.plans-hero-card {
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg2) 100%);
+}
+.plans-hero-title {
+  font-family: 'Instrument Serif', serif;
+  font-size: 28px;
+  line-height: 1.08;
+  color: var(--text);
+}
+.plans-hero-copy,
+.plans-note-copy {
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text2);
+}
+.plans-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.plan-card {
+  padding: 20px;
+  border-radius: 22px;
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+}
+.plan-card.featured {
+  border-color: var(--border2);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg2) 100%);
+}
+.plan-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.plan-name {
+  font-family: 'Instrument Serif', serif;
+  font-size: 28px;
+  line-height: 1.05;
+  color: var(--text);
+}
+.plan-price {
+  margin-top: 8px;
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text);
+}
+.plan-price span {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text3);
+}
+.plan-badge {
+  padding: 8px 11px;
+  border-radius: 999px;
+  border: 1.5px solid var(--border);
+  background: var(--bg2);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.plan-desc {
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text2);
+}
+.plan-feature-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+.plan-feature-list li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text2);
+}
+.plan-feature-list li::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--text3);
+}
+.plans-actions .btn[disabled] {
+  opacity: 0.52;
+}
 @media (min-width: 768px) {
+  .auth-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  #authNameRow {
+    grid-column: 1 / -1;
+  }
+  .auth-overview-strip,
+  .plans-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .auth-settings-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1723,6 +1898,57 @@ html, body {
 @keyframes twBlink { 0%,100%{opacity:1} 50%{opacity:0} }
 
 @media (max-width: 767px) {
+  #s-auth,
+  #s-plans {
+    overflow-y: auto;
+  }
+  .key-inner.auth-inner,
+  .plans-inner {
+    padding-left: 16px;
+    padding-right: 16px;
+    padding-bottom: calc(22px + var(--sab));
+  }
+  .key-back-row {
+    margin-bottom: 20px;
+  }
+  .key-title {
+    font-size: 30px;
+  }
+  .key-sub {
+    margin-bottom: 20px;
+  }
+  .auth-screen-tabs {
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .auth-panel,
+  .auth-summary-card,
+  .auth-settings-card,
+  .plans-hero-card,
+  .plan-card,
+  .plans-note-card {
+    padding: 16px;
+    border-radius: 18px;
+  }
+  .auth-panel-title,
+  .plans-hero-title {
+    font-size: 22px;
+  }
+  .plan-name,
+  .plan-price {
+    font-size: 24px;
+  }
+  .plan-card-top {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .plan-badge {
+    padding: 7px 10px;
+  }
+  .auth-inner .auth-actions,
+  .plans-actions {
+    margin-top: 14px;
+  }
   #s-practice,
   #s-practice-voice,
   #s-live {
