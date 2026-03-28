@@ -20,7 +20,7 @@ const CUE_KEY_ENCRYPTION_SECRET = String(process.env.CUE_KEY_ENCRYPTION_SECRET |
 const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || '').trim();
 const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
 const STRIPE_PRICE_PRO = String(process.env.STRIPE_PRICE_PRO || '').trim();
-const STRIPE_PRICE_DEAL = String(process.env.STRIPE_PRICE_DEAL || process.env.STRIPE_PRICE_EXOTIC || '').trim();
+const STRIPE_PRICE_EXOTIC = String(process.env.STRIPE_PRICE_EXOTIC || process.env.STRIPE_PRICE_DEAL || '').trim();
 const liveCallWindows = new Map();
 const stripeSubscriptionCache = new Map();
 const ALLOWED_REALTIME_MODELS = new Set(['gpt-realtime', 'gpt-realtime-mini']);
@@ -42,11 +42,11 @@ const STRIPE_PLAN_CONFIG = Object.freeze({
     tier: 'private',
     priceId: STRIPE_PRICE_PRO
   },
-  deal: {
-    code: 'deal',
-    label: 'Deal',
+  exotic: {
+    code: 'exotic',
+    label: 'Exotic',
     tier: 'private',
-    priceId: STRIPE_PRICE_DEAL
+    priceId: STRIPE_PRICE_EXOTIC
   }
 });
 const STRIPE_PRICE_PLAN_INDEX = new Map(
@@ -59,7 +59,7 @@ const PRO_SCENARIO_IDS = Object.freeze([
   'salary', 'rent', 'car', 'freelance', 'joboffer', 'biz', 'severance', 'medical',
   'realestate', 'equity', 'agency', 'raise'
 ]);
-const DEAL_SCENARIO_IDS = Object.freeze([...PRO_SCENARIO_IDS, 'custom']);
+const EXOTIC_SCENARIO_IDS = Object.freeze([...PRO_SCENARIO_IDS, 'custom']);
 const PLAN_RULES = Object.freeze({
   free: {
     code: 'free',
@@ -97,11 +97,11 @@ const PLAN_RULES = Object.freeze({
       dedicatedSupport: false
     }
   },
-  deal: {
-    code: 'deal',
-    label: 'Deal',
+  exotic: {
+    code: 'exotic',
+    label: 'Exotic',
     sessionLimit: null,
-    allowedScenarioIds: DEAL_SCENARIO_IDS,
+    allowedScenarioIds: EXOTIC_SCENARIO_IDS,
     features: {
       byok: true,
       hostedKey: true,
@@ -173,7 +173,7 @@ function hasSupabaseAdmin() {
 }
 
 function hasStripeBilling() {
-  return !!(STRIPE_SECRET_KEY && STRIPE_PRICE_PRO && STRIPE_PRICE_DEAL);
+  return !!(STRIPE_SECRET_KEY && STRIPE_PRICE_PRO && STRIPE_PRICE_EXOTIC);
 }
 
 function hasStripeWebhookSupport() {
@@ -402,7 +402,7 @@ function validateOpenAIKey(apiKey) {
 
 function getStripePlanConfig(planCode) {
   const value = String(planCode || '').trim().toLowerCase();
-  if (value === 'exotic') return STRIPE_PLAN_CONFIG.deal;
+  if (value === 'deal') return STRIPE_PLAN_CONFIG.exotic;
   return STRIPE_PLAN_CONFIG[value] || null;
 }
 
@@ -457,9 +457,15 @@ function canAccessScenario(access, scenarioId) {
 
 function getScenarioGatePlanLabel(scenarioId) {
   const id = String(scenarioId || '').trim();
-  if (DEAL_SCENARIO_IDS.includes(id) && !PRO_SCENARIO_IDS.includes(id)) return 'Deal';
+  if (EXOTIC_SCENARIO_IDS.includes(id) && !PRO_SCENARIO_IDS.includes(id)) return 'Exotic';
   if (PRO_SCENARIO_IDS.includes(id) && !FREE_SCENARIO_IDS.includes(id)) return 'Pro';
   return 'Free';
+}
+
+function getManualBillingPlanCode(subscriptionId) {
+  const match = String(subscriptionId || '').trim().toLowerCase().match(/^(manual|comp):(pro|exotic|deal)$/);
+  if (!match) return '';
+  return match[2] === 'deal' ? 'exotic' : match[2];
 }
 
 function normalizeBillingStatus(status) {
@@ -929,7 +935,23 @@ async function fetchBillingStateForUser(userId) {
   }
 
   let summary = null;
-  if (hasStripeBilling() && billing.stripe_subscription_id) {
+  const manualPlanCode = getManualBillingPlanCode(billing.stripe_subscription_id);
+  if (manualPlanCode) {
+    const manualPlan = getStripePlanConfig(manualPlanCode);
+    const manualStatus = normalizeBillingStatus(billing.plan_status || 'active');
+    const manualPaid = !!manualPlan && isPaidBillingStatus(manualStatus);
+    summary = {
+      planCode: manualPaid ? manualPlan.code : 'free',
+      planName: manualPaid ? manualPlan.label : 'Free',
+      planTier: manualPaid ? manualPlan.tier : 'free',
+      planStatus: manualStatus,
+      currentPeriodEnd: billing.current_period_end || null,
+      stripeCustomerId: '',
+      stripeSubscriptionId: String(billing.stripe_subscription_id || '').trim(),
+      priceId: '',
+      isPaid: manualPaid
+    };
+  } else if (hasStripeBilling() && billing.stripe_subscription_id) {
     try {
       const subscription = await fetchStripeSubscription(billing.stripe_subscription_id);
       summary = mapStripeSubscriptionSummary(subscription, billing);
@@ -946,7 +968,7 @@ async function fetchBillingStateForUser(userId) {
     planName: isPaid ? (summary?.planName || 'Cue Private') : 'Free',
     planCode: isPaid ? (summary?.planCode || 'free') : 'free',
     currentPeriodEnd: summary?.currentPeriodEnd || billing.current_period_end || null,
-    canManage: hasStripeBilling() && !!String(summary?.stripeCustomerId || billing.stripe_customer_id || '').trim(),
+    canManage: hasStripeBilling() && !manualPlanCode && !!String(summary?.stripeCustomerId || billing.stripe_customer_id || '').trim(),
     isPaid
   };
 }
@@ -1720,7 +1742,12 @@ const server = http.createServer(async (req, res) => {
       }
 
       const billingAccount = await fetchBillingAccountForUser(user.id);
-      if (billingAccount?.stripe_subscription_id && isPaidBillingStatus(billingAccount.plan_status)) {
+      if (
+        billingAccount?.stripe_subscription_id &&
+        !getManualBillingPlanCode(billingAccount.stripe_subscription_id) &&
+        isPaidBillingStatus(billingAccount.plan_status) &&
+        billingAccount?.stripe_customer_id
+      ) {
         const origin = getExpectedOrigin(req);
         const portal = await stripeApiFetch('/billing_portal/sessions', {
           method: 'POST',

@@ -706,22 +706,22 @@ function renderScenarioAccessState() {
   if (bannerTitle) {
     bannerTitle.textContent = access.planCode === 'free'
       ? 'Free account: 3 scenarios and 3 sessions each month.'
-      : access.planCode === 'deal'
-        ? 'Deal account: every Cue feature unlocked.'
+      : access.planCode === 'exotic'
+        ? 'Exotic account: every Cue feature unlocked.'
         : 'Pro account: full scenario library with debriefs and unlimited sessions.';
   }
   if (bannerSub) {
     if (access.planCode === 'free') {
       const sessionsLeft = access.sessionsRemaining ?? 0;
       bannerSub.textContent = `${sessionsLeft} session${sessionsLeft === 1 ? '' : 's'} left this month. Save your key once, then upgrade for the full library and unlimited usage.`;
-    } else if (access.planCode === 'deal') {
+    } else if (access.planCode === 'exotic') {
       bannerSub.textContent = 'AI brief builder, custom scenarios, and win/loss analysis are live on this account.';
     } else {
-      bannerSub.textContent = 'Full standard library, debriefs, and unlimited sessions are active. Upgrade to Deal for custom scenarios and strategy brief automation.';
+      bannerSub.textContent = 'Full standard library, debriefs, and unlimited sessions are active. Upgrade to Exotic for custom scenarios and strategy brief automation.';
     }
   }
   if (bannerBtn) {
-    bannerBtn.textContent = access.planCode === 'free' ? 'Upgrade Plan' : access.planCode === 'pro' ? 'See Deal' : 'Manage Plan';
+    bannerBtn.textContent = access.planCode === 'free' ? 'Upgrade Plan' : access.planCode === 'pro' ? 'See Exotic' : 'Manage Plan';
     bannerBtn.onclick = () => openPlansScreen();
   }
   enforceScenarioAccess();
@@ -1004,14 +1004,14 @@ function getDefaultEntryScreen() {
 
 function getScenarioRequiredPlan(sc) {
   if (!sc?.id) return 'free';
-  if (sc.id === 'custom') return 'deal';
+  if (sc.id === 'custom') return 'exotic';
   if (FREE_SCENARIO_IDS.has(sc.id)) return 'free';
   return 'pro';
 }
 
 function getScenarioRequiredPlanLabel(sc) {
   const required = getScenarioRequiredPlan(sc);
-  return required === 'deal' ? 'Deal' : required === 'pro' ? 'Pro' : 'Free';
+  return required === 'exotic' ? 'Exotic' : required === 'pro' ? 'Pro' : 'Free';
 }
 
 function featureEnabled(feature) {
@@ -1050,7 +1050,7 @@ function setPlansStatus(message = '', kind = '') {
 }
 
 function setPlanButtonsDisabled(disabled) {
-  ['planBtnFree', 'planBtnPro', 'planBtnDeal', 'plansManageBtn', 'plansRefreshBtn'].forEach(id => {
+  ['planBtnFree', 'planBtnPro', 'planBtnExotic', 'plansManageBtn', 'plansRefreshBtn'].forEach(id => {
     const btn = document.getElementById(id);
     if (btn) btn.disabled = !!disabled;
   });
@@ -1091,12 +1091,12 @@ function renderAccountHistory() {
           <div class="auth-history-entry-title">Pro unlocks saved reviews</div>
           <div class="auth-history-entry-chip">Pro</div>
         </div>
-        <div class="auth-history-entry-sub">Session history and debrief summaries appear here once this account moves onto Pro or Deal.</div>
+        <div class="auth-history-entry-sub">Session history and debrief summaries appear here once this account moves onto Pro or Exotic.</div>
       </div>`;
     return;
   }
 
-  title.textContent = access.planCode === 'deal' ? 'Saved Session Analysis' : 'Saved Session Debriefs';
+  title.textContent = access.planCode === 'exotic' ? 'Saved Session Analysis' : 'Saved Session Debriefs';
   meta.textContent = 'Recent practice and live sessions saved on this account.';
   const entries = Array.isArray(history.entries) ? history.entries : [];
   if (!entries.length) {
@@ -1194,12 +1194,12 @@ function renderAuthState() {
   if (subcopy) {
     subcopy.textContent = authState.authenticated
       ? `${access.planLabel} account active. Keys, usage, and plan entitlements follow this login across devices.`
-      : 'Secure sign-in for Cue. Accounts are now required for Free, Pro, and Deal.';
+      : 'Secure sign-in for Cue. Accounts are now required for Free, Pro, and Exotic.';
   }
   if (note) {
     note.textContent = authMode === 'signin'
       ? 'Sign in to your Cue account. Saved BYOK storage, monthly usage, and Stripe billing stay attached to this identity.'
-      : 'Create your Cue account first. Free, Pro, and Deal all attach to this identity.';
+      : 'Create your Cue account first. Free, Pro, and Exotic all attach to this identity.';
   }
 
   if (primaryBtn) {
@@ -1295,7 +1295,7 @@ function renderPlansState() {
   const freeCard = document.getElementById('planCardFree');
   const planDefinitions = [
     { code: 'pro', label: 'Pro', badgeEl: 'planBadgePro', statusEl: 'planStatusPro', btnEl: 'planBtnPro', cardEl: 'planCardPro' },
-    { code: 'deal', label: 'Deal', badgeEl: 'planBadgeDeal', statusEl: 'planStatusDeal', btnEl: 'planBtnDeal', cardEl: 'planCardDeal' }
+    { code: 'exotic', label: 'Exotic', badgeEl: 'planBadgeExotic', statusEl: 'planStatusExotic', btnEl: 'planBtnExotic', cardEl: 'planCardExotic' }
   ];
   if (subcopy) {
     subcopy.textContent = authState.authenticated
@@ -1329,7 +1329,7 @@ function renderPlansState() {
   if (noteCopy) {
     noteCopy.textContent = billing.isPaid
       ? 'Your account already has managed billing attached. Use the portal for card updates, invoice history, cancellations, or plan changes.'
-      : 'Free is narrow on purpose. Pro unlocks the main app cleanly. Deal unlocks the AI brief builder, custom scenarios, and deeper post-session analysis.';
+      : 'Free is narrow on purpose. Pro unlocks the main app cleanly. Exotic unlocks the AI brief builder, custom scenarios, and deeper post-session analysis.';
   }
   if (manageBtn) manageBtn.style.display = authState.authenticated && billing.canManage ? 'block' : 'none';
   if (freeBadge) freeBadge.textContent = billing.isPaid ? 'Available' : 'Current Plan';
@@ -1356,7 +1356,7 @@ function renderPlansState() {
     if (badge) {
       badge.textContent = currentPlan
         ? 'Current Plan'
-        : switching && plan.code === 'deal'
+        : switching && plan.code === 'exotic'
           ? 'Upgrade'
           : authState.authenticated
             ? 'Ready'
@@ -1564,7 +1564,7 @@ async function completeTrackedSession(review = null) {
 
 async function requirePlanFeature(feature, config = {}) {
   if (!featureEnabled(feature)) {
-    const planLabel = config.planLabel || (feature === 'strategyBrief' || feature === 'customScenarios' || feature === 'winLossAnalysis' ? 'Deal' : 'Pro');
+    const planLabel = config.planLabel || (feature === 'strategyBrief' || feature === 'customScenarios' || feature === 'winLossAnalysis' ? 'Exotic' : 'Pro');
     const confirmed = await showModal({
       title: `${planLabel} feature`,
       body: config.body || `${config.name || 'This feature'} is part of the ${planLabel} plan.`,
@@ -4021,8 +4021,8 @@ async function switchBot(bot, _el) {
   if (bot === 'advisor') {
     const allowed = await requirePlanFeature('strategyBrief', {
       name: 'AI strategy brief builder',
-      planLabel: 'Deal',
-      body: 'Scenario Advisor and the AI-generated strategy brief are part of the Deal plan.'
+      planLabel: 'Exotic',
+      body: 'Scenario Advisor and the AI-generated strategy brief are part of the Exotic plan.'
     });
     if (!allowed) return;
   }
