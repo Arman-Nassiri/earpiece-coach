@@ -896,6 +896,7 @@ function renderAuthState() {
   const signedOut = document.getElementById('authSignedOut');
   const signedIn = document.getElementById('authSignedIn');
   const overviewStrip = document.getElementById('authOverviewStrip');
+  const snapshotLabel = document.getElementById('authSnapshotLabel');
   const overviewKey = document.getElementById('authOverviewKey');
   const nameRow = document.getElementById('authNameRow');
   const primaryBtn = document.getElementById('authPrimaryBtn');
@@ -909,6 +910,7 @@ function renderAuthState() {
   const tabSignin = document.getElementById('authTabSignin');
   const tabSignup = document.getElementById('authTabSignup');
   const settingsGrid = document.getElementById('authSettingsGrid');
+  const settingsLabel = document.getElementById('authSettingsLabel');
   const profileInput = document.getElementById('accountDisplayNameInput');
   const keyState = document.getElementById('accountKeyState');
   const keyDeleteBtn = document.getElementById('accountKeyDeleteBtn');
@@ -925,7 +927,9 @@ function renderAuthState() {
 
   if (signedOut) signedOut.style.display = authState.authenticated ? 'none' : 'block';
   if (signedIn) signedIn.style.display = authState.authenticated ? 'block' : 'none';
+  if (snapshotLabel) snapshotLabel.style.display = authState.authenticated ? 'block' : 'none';
   if (overviewStrip) overviewStrip.style.display = authState.authenticated ? 'grid' : 'none';
+  if (settingsLabel) settingsLabel.style.display = authState.authenticated ? 'block' : 'none';
   if (settingsGrid) settingsGrid.style.display = authState.authenticated ? 'grid' : 'none';
   if (nameRow) nameRow.style.display = authState.authenticated || authMode !== 'signup' ? 'none' : 'block';
 

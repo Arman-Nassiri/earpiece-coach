@@ -43,7 +43,6 @@
       <div class="wordmark-sub"><span id="typewriterText"></span><span class="tw-cursor">|</span></div>
     </div>
     <div class="launch-actions">
-      <button class="btn ghost" onclick="beginGoogleOAuth('/#auth')">Continue with Google</button>
       <button class="btn" onclick="go('s-key')">Bring Your Own Key</button>
       <div class="launch-secondary-row">
         <button class="btn ghost launch-account-btn" onclick="openAccountScreen()">Sign In / Sign Up</button>
@@ -137,93 +136,99 @@
       <div class="key-back" onclick="go('s-launch')">&#8592;</div>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
     </div>
-    <div class="key-top">
+    <div class="key-top auth-key-top">
       <div class="key-title">Your Account</div>
       <div class="key-sub" id="authSubcopy">Secure sign-in for Cue. Billing and saved API keys will live here.</div>
-      <div class="auth-screen-tabs">
-        <button class="ptab active" type="button">Account</button>
-        <button class="ptab" type="button" onclick="openPlansScreen()">Plans</button>
-      </div>
+      <div class="auth-content-stack">
+        <div class="auth-screen-tabs">
+          <button class="ptab active" type="button">Account</button>
+          <button class="ptab" type="button" onclick="openPlansScreen()">Plans</button>
+        </div>
 
-      <div class="auth-panel" id="authSignedOut">
-        <div class="auth-panel-head">
-          <div class="auth-panel-title">Private Cue access</div>
-          <div class="auth-panel-sub">Sign in to save your setup, carry your key between sessions, and unlock plans later without re-entering everything.</div>
-        </div>
-        <button class="btn ghost oauth-google-btn" type="button" onclick="beginGoogleOAuth('/#auth')">Continue with Google</button>
-        <div class="provider-tabs auth-tabs">
-          <button class="ptab active" id="authTabSignin" type="button" onclick="setAuthMode('signin')">Sign In</button>
-          <button class="ptab" id="authTabSignup" type="button" onclick="setAuthMode('signup')">Create Account</button>
-        </div>
-        <div class="auth-form-grid">
-          <div id="authNameRow" style="display:none;">
-            <div class="field-label">Display Name</div>
-            <input class="field-input" id="authDisplayName" type="text" placeholder="Your name" autocomplete="name" spellcheck="false"/>
+        <div class="auth-panel" id="authSignedOut">
+          <div class="auth-panel-head">
+            <div class="auth-panel-title">Private Cue access</div>
+            <div class="auth-panel-sub">Sign in to save your setup, carry your key between sessions, and unlock plans later without re-entering everything.</div>
           </div>
-          <div>
-            <div class="field-label">Email</div>
-            <input class="field-input" id="authEmail" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false"/>
+          <button class="btn ghost oauth-google-btn" type="button" onclick="beginGoogleOAuth('/#auth')">Continue with Google</button>
+          <div class="provider-tabs auth-tabs">
+            <button class="ptab active" id="authTabSignin" type="button" onclick="setAuthMode('signin')">Sign In</button>
+            <button class="ptab" id="authTabSignup" type="button" onclick="setAuthMode('signup')">Create Account</button>
           </div>
-          <div>
-            <div class="field-label">Password</div>
-            <input class="field-input" id="authPassword" type="password" placeholder="At least 8 characters" autocomplete="current-password" spellcheck="false"/>
-          </div>
-        </div>
-        <div class="security-badge" style="margin-top:14px;">
-          <div class="security-badge-text">
-            <strong>Cookie-backed sessions.</strong> Cue keeps account sessions on secure HTTP-only cookies instead of browser local storage.
-          </div>
-        </div>
-        <p class="key-note" id="authNote">Create an account first. Plan checkout and saved BYOK storage will attach to this identity.</p>
-      </div>
-
-      <div class="auth-summary-card" id="authSignedIn" style="display:none;">
-        <div class="auth-summary-label">Signed In</div>
-        <div class="auth-summary-email" id="authSummaryEmail">—</div>
-        <div class="auth-summary-meta" id="authSummaryMeta">Checking account status...</div>
-        <div class="security-badge" style="margin-top:18px; margin-bottom:0;">
-          <div class="security-badge-text">
-            <strong>Next step.</strong> Billing plans and saved personal API keys will hang off this account so your setup follows you when you log in.
-          </div>
-        </div>
-      </div>
-      <div class="auth-overview-strip" id="authOverviewStrip" style="display:none;">
-        <div class="auth-overview-card">
-          <div class="auth-summary-label">Saved Key</div>
-          <div class="auth-overview-value" id="authOverviewKey">No saved key yet</div>
-          <div class="auth-overview-sub">Store one encrypted OpenAI key once and use Cue without repasting it.</div>
-        </div>
-        <div class="auth-overview-card">
-          <div class="auth-summary-label">Plans</div>
-          <div class="auth-overview-value">Coming Soon</div>
-          <div class="auth-overview-sub">Pro and Exotic will live on their own billing tab with managed usage and premium tools.</div>
-        </div>
-      </div>
-      <div class="auth-settings-grid" id="authSettingsGrid" style="display:none;">
-        <div class="auth-settings-card">
-          <div class="auth-summary-label">Profile</div>
-          <div class="auth-card-intro">Keep a clean account identity so saved sessions and future billing stay attached to the right profile.</div>
-          <div class="field-label">Display Name</div>
-          <input class="field-input" id="accountDisplayNameInput" type="text" placeholder="Your name" autocomplete="name" spellcheck="false"/>
-          <button class="btn ghost" id="accountProfileSaveBtn" style="margin-top:14px;" onclick="saveAccountProfile()">Save Profile</button>
-        </div>
-        <div class="auth-settings-card">
-          <div class="auth-summary-label">Saved OpenAI Key</div>
-          <div class="auth-summary-meta" id="accountKeyState">No saved OpenAI key on this account yet.</div>
-          <div class="auth-card-intro">Cue stores your personal OpenAI key as encrypted server-side ciphertext and only decrypts it during server-side requests.</div>
-          <div class="field-label" style="margin-top:18px;">OpenAI API Key</div>
-          <input class="field-input" id="accountOpenAIKeyInput" type="password" placeholder="Paste a key to save it securely" autocomplete="off" spellcheck="false"/>
-          <div class="security-badge" style="margin-top:14px; margin-bottom:0;">
-            <div class="security-badge-text">
-              <strong>Encrypted at rest.</strong> Cue stores saved personal keys as server-side ciphertext and never returns the raw key to the browser after save.
+          <div class="auth-form-grid">
+            <div id="authNameRow" style="display:none;">
+              <div class="field-label">Display Name</div>
+              <input class="field-input" id="authDisplayName" type="text" placeholder="Your name" autocomplete="name" spellcheck="false"/>
+            </div>
+            <div>
+              <div class="field-label">Email</div>
+              <input class="field-input" id="authEmail" type="email" placeholder="you@example.com" autocomplete="email" spellcheck="false"/>
+            </div>
+            <div>
+              <div class="field-label">Password</div>
+              <input class="field-input" id="authPassword" type="password" placeholder="At least 8 characters" autocomplete="current-password" spellcheck="false"/>
             </div>
           </div>
-          <button class="btn" id="accountKeySaveBtn" style="margin-top:14px;" onclick="saveAccountApiKey()">Save Key</button>
-          <button class="btn ghost" id="accountKeyDeleteBtn" style="display:none; margin-top:10px;" onclick="deleteAccountApiKey()">Delete Saved Key</button>
+          <div class="security-badge auth-panel-security">
+            <div class="security-badge-text">
+              <strong>Cookie-backed sessions.</strong> Cue keeps account sessions on secure HTTP-only cookies instead of browser local storage.
+            </div>
+          </div>
+          <p class="key-note" id="authNote">Create an account first. Plan checkout and saved BYOK storage will attach to this identity.</p>
+        </div>
+
+        <div class="auth-summary-card" id="authSignedIn" style="display:none;">
+          <div class="auth-summary-label">Signed In</div>
+          <div class="auth-summary-email" id="authSummaryEmail">—</div>
+          <div class="auth-summary-meta" id="authSummaryMeta">Checking account status...</div>
+          <div class="security-badge auth-summary-security">
+            <div class="security-badge-text">
+              <strong>Next step.</strong> Billing plans and saved personal API keys will hang off this account so your setup follows you when you log in.
+            </div>
+          </div>
+        </div>
+
+        <div class="auth-section-label" id="authSnapshotLabel" style="display:none;">Account Snapshot</div>
+        <div class="auth-overview-strip" id="authOverviewStrip" style="display:none;">
+          <div class="auth-overview-card">
+            <div class="auth-summary-label">Saved Key</div>
+            <div class="auth-overview-value" id="authOverviewKey">No saved key yet</div>
+            <div class="auth-overview-sub">Store one encrypted OpenAI key once and use Cue without repasting it.</div>
+          </div>
+          <div class="auth-overview-card">
+            <div class="auth-summary-label">Plans</div>
+            <div class="auth-overview-value">Coming Soon</div>
+            <div class="auth-overview-sub">Pro and Exotic will live on their own billing tab with managed usage and premium tools.</div>
+          </div>
+        </div>
+
+        <div class="auth-section-label" id="authSettingsLabel" style="display:none;">Settings</div>
+        <div class="auth-settings-grid" id="authSettingsGrid" style="display:none;">
+          <div class="auth-settings-card">
+            <div class="auth-summary-label">Profile</div>
+            <div class="auth-card-intro">Keep a clean account identity so saved sessions and future billing stay attached to the right profile.</div>
+            <div class="field-label">Display Name</div>
+            <input class="field-input" id="accountDisplayNameInput" type="text" placeholder="Your name" autocomplete="name" spellcheck="false"/>
+            <button class="btn ghost" id="accountProfileSaveBtn" onclick="saveAccountProfile()">Save Profile</button>
+          </div>
+          <div class="auth-settings-card">
+            <div class="auth-summary-label">Saved OpenAI Key</div>
+            <div class="auth-summary-meta" id="accountKeyState">No saved OpenAI key on this account yet.</div>
+            <div class="auth-card-intro">Cue stores your personal OpenAI key as encrypted server-side ciphertext and only decrypts it during server-side requests.</div>
+            <div class="field-label">OpenAI API Key</div>
+            <input class="field-input" id="accountOpenAIKeyInput" type="password" placeholder="Paste a key to save it securely" autocomplete="off" spellcheck="false"/>
+            <div class="security-badge auth-settings-security">
+              <div class="security-badge-text">
+                <strong>Encrypted at rest.</strong> Cue stores saved personal keys as server-side ciphertext and never returns the raw key to the browser after save.
+              </div>
+            </div>
+            <button class="btn" id="accountKeySaveBtn" onclick="saveAccountApiKey()">Save Key</button>
+            <button class="btn ghost" id="accountKeyDeleteBtn" style="display:none;" onclick="deleteAccountApiKey()">Delete Saved Key</button>
+          </div>
         </div>
       </div>
     </div>
-    <div class="auth-actions">
+    <div class="auth-actions auth-actions-card">
       <button class="btn" id="authPrimaryBtn" onclick="submitAuth()">Create Account</button>
       <button class="btn ghost" id="authSecondaryBtn" onclick="handleAuthSecondary()">Already have an account?</button>
       <button class="btn ghost" id="authContinueBtn" style="display:none;" onclick="continueFromAccount()">Continue to Cue</button>
@@ -241,60 +246,62 @@
       <div class="key-back" onclick="openAccountScreen()">&#8592;</div>
       <button class="icon-btn contact-btn" type="button" onclick="openAccountScreen()" title="Account">Account</button>
     </div>
-    <div class="key-top">
+    <div class="key-top plans-key-top">
       <div class="key-title">Plans</div>
       <div class="key-sub" id="plansSubcopy">Paid Cue plans are staged next. Pricing is shown now so the product shape is clear before checkout goes live.</div>
-      <div class="auth-screen-tabs">
-        <button class="ptab" type="button" onclick="openAccountScreen()">Account</button>
-        <button class="ptab active" type="button">Plans</button>
-      </div>
-      <div class="plans-hero-card">
-        <div class="auth-summary-label">Coming Soon</div>
-        <div class="plans-hero-title">Private accounts will support either a paid Cue plan or your own saved OpenAI key.</div>
-        <div class="plans-hero-copy" id="plansHeroCopy">Use your account now for saved-key access. Stripe checkout lands next.</div>
-      </div>
-      <div class="plans-grid">
-        <div class="plan-card">
-          <div class="plan-card-top">
-            <div>
-              <div class="plan-name">Pro</div>
-              <div class="plan-price">$29 <span>/ month</span></div>
-            </div>
-            <div class="plan-badge">Coming Soon</div>
-          </div>
-          <div class="plan-desc">The main private account tier for people who want Cue as a regular negotiation operating system instead of a one-off tool.</div>
-          <ul class="plan-feature-list">
-            <li>Unlimited sessions</li>
-            <li>All 13 scenarios + new drops</li>
-            <li>Session memory &amp; debrief summaries</li>
-            <li>Priority response latency</li>
-            <li>Early access to new features</li>
-          </ul>
+      <div class="plans-content-stack">
+        <div class="auth-screen-tabs">
+          <button class="ptab" type="button" onclick="openAccountScreen()">Account</button>
+          <button class="ptab active" type="button">Plans</button>
         </div>
-        <div class="plan-card featured">
-          <div class="plan-card-top">
-            <div>
-              <div class="plan-name">Exotic</div>
-              <div class="plan-price">$99 <span>/ month</span></div>
-            </div>
-            <div class="plan-badge">Coming Soon</div>
-          </div>
-          <div class="plan-desc">For heavier users who want more of Cue handled for them before, during, and after the negotiation itself.</div>
-          <ul class="plan-feature-list">
-            <li>Everything in Pro</li>
-            <li>Pre-negotiation strategy builder (AI-generated brief)</li>
-            <li>Post-session win/loss analysis</li>
-            <li>Custom scenario creation</li>
-            <li>Dedicated support</li>
-          </ul>
+        <div class="plans-hero-card">
+          <div class="auth-summary-label">Coming Soon</div>
+          <div class="plans-hero-title">Private accounts will support either a paid Cue plan or your own saved OpenAI key.</div>
+          <div class="plans-hero-copy" id="plansHeroCopy">Use your account now for saved-key access. Stripe checkout lands next.</div>
         </div>
-      </div>
-      <div class="plans-note-card">
-        <div class="auth-summary-label">How Access Will Work</div>
-        <div class="plans-note-copy">When plans launch, paid accounts will use Cue-managed usage. Private accounts that prefer BYOK will still be able to save and reuse their own encrypted OpenAI key instead.</div>
+        <div class="plans-grid">
+          <div class="plan-card">
+            <div class="plan-card-top">
+              <div>
+                <div class="plan-name">Pro</div>
+                <div class="plan-price">$29 <span>/ month</span></div>
+              </div>
+              <div class="plan-badge">Coming Soon</div>
+            </div>
+            <div class="plan-desc">The main private account tier for people who want Cue as a regular negotiation operating system instead of a one-off tool.</div>
+            <ul class="plan-feature-list">
+              <li>Unlimited sessions</li>
+              <li>All 13 scenarios + new drops</li>
+              <li>Session memory &amp; debrief summaries</li>
+              <li>Priority response latency</li>
+              <li>Early access to new features</li>
+            </ul>
+          </div>
+          <div class="plan-card featured">
+            <div class="plan-card-top">
+              <div>
+                <div class="plan-name">Exotic</div>
+                <div class="plan-price">$99 <span>/ month</span></div>
+              </div>
+              <div class="plan-badge">Coming Soon</div>
+            </div>
+            <div class="plan-desc">For heavier users who want more of Cue handled for them before, during, and after the negotiation itself.</div>
+            <ul class="plan-feature-list">
+              <li>Everything in Pro</li>
+              <li>Pre-negotiation strategy builder (AI-generated brief)</li>
+              <li>Post-session win/loss analysis</li>
+              <li>Custom scenario creation</li>
+              <li>Dedicated support</li>
+            </ul>
+          </div>
+        </div>
+        <div class="plans-note-card">
+          <div class="auth-summary-label">How Access Will Work</div>
+          <div class="plans-note-copy">When plans launch, paid accounts will use Cue-managed usage. Private accounts that prefer BYOK will still be able to save and reuse their own encrypted OpenAI key instead.</div>
+        </div>
       </div>
     </div>
-    <div class="auth-actions plans-actions">
+    <div class="auth-actions auth-actions-card plans-actions">
       <button class="btn ghost" type="button" onclick="openAccountScreen()">Back to Account</button>
       <button class="btn" type="button" disabled>Checkout Coming Soon</button>
     </div>

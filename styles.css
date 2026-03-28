@@ -278,6 +278,11 @@ html, body {
    S-KEY
 ───────────────────────────────────────────────────── */
 #s-key, #s-auth, #s-plans { align-items: center; justify-content: flex-end; padding: 0; }
+#s-auth,
+#s-plans {
+  align-items: stretch;
+  justify-content: flex-start;
+}
 .key-inner {
   width: 100%; max-width: 480px;
   padding: var(--top-safe-gap) 28px calc(var(--sab) + 44px);
@@ -294,6 +299,18 @@ html, body {
 .key-back:active { background: var(--bg2); }
 .key-back:hover { background: var(--bg2); }
 .key-top { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.auth-inner,
+.plans-inner {
+  width: min(100%, 960px);
+  margin: 0 auto;
+  min-height: 100%;
+  gap: 18px;
+}
+.auth-key-top,
+.plans-key-top {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+}
 .key-title { font-family: 'Instrument Serif', serif; font-size: 32px; color: var(--text); margin-bottom: 6px; }
 .key-sub { font-size: 14px; color: var(--text3); margin-bottom: 32px; line-height: 1.55; }
 .key-note { font-size: 12px; color: var(--text3); margin: 10px 0 24px; line-height: 1.7; }
@@ -353,13 +370,17 @@ html, body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  margin-bottom: 14px;
+}
+.auth-content-stack,
+.plans-content-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 .auth-tabs { margin-top: 4px; }
 .auth-panel,
 .plans-hero-card,
 .plans-note-card {
-  margin-top: 14px;
   padding: 18px;
   border-radius: var(--r);
   border: 1.5px solid var(--border);
@@ -385,15 +406,19 @@ html, body {
   gap: 14px;
   margin-top: 18px;
 }
-.auth-inner .auth-actions {
+.auth-actions-card {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 18px;
+  border-radius: var(--r);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+  margin-top: auto;
 }
 .remember-key-row,
 .account-key-card,
 .auth-settings-card {
-  margin-top: 14px;
   padding: 14px 15px;
   border-radius: var(--rs);
   border: 1.5px solid var(--border);
@@ -433,7 +458,14 @@ html, body {
 .auth-overview-strip {
   display: grid;
   gap: 12px;
-  margin-top: 12px;
+}
+.auth-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text3);
+  padding: 2px 2px 0;
 }
 .auth-overview-card {
   padding: 16px 17px;
@@ -455,7 +487,12 @@ html, body {
 .auth-settings-grid {
   display: grid;
   gap: 12px;
-  margin-top: 12px;
+}
+.auth-settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 100%;
 }
 .auth-summary-label {
   font-size: 11px;
@@ -478,10 +515,19 @@ html, body {
   color: var(--text2);
 }
 .auth-card-intro {
-  margin-bottom: 16px;
   font-size: 12px;
   line-height: 1.6;
   color: var(--text2);
+}
+.auth-panel-security,
+.auth-summary-security,
+.auth-settings-security {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.auth-settings-card .btn,
+.auth-settings-card .btn.ghost {
+  margin-top: 0;
 }
 .plans-hero-card {
   background: linear-gradient(180deg, var(--surface) 0%, var(--bg2) 100%);
@@ -580,6 +626,11 @@ html, body {
   opacity: 0.52;
 }
 @media (min-width: 768px) {
+  #s-auth,
+  #s-plans {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
   .auth-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -591,7 +642,13 @@ html, body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .auth-settings-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  }
+  .auth-inner {
+    max-width: 900px;
+  }
+  .plans-inner {
+    max-width: 980px;
   }
 }
 
@@ -1902,6 +1959,10 @@ html, body {
   #s-plans {
     overflow-y: auto;
   }
+  .auth-inner,
+  .plans-inner {
+    gap: 14px;
+  }
   .key-inner.auth-inner,
   .plans-inner {
     padding-left: 16px;
@@ -1920,6 +1981,10 @@ html, body {
   .auth-screen-tabs {
     gap: 6px;
     margin-bottom: 12px;
+  }
+  .auth-content-stack,
+  .plans-content-stack {
+    gap: 10px;
   }
   .auth-panel,
   .auth-summary-card,
@@ -1947,7 +2012,9 @@ html, body {
   }
   .auth-inner .auth-actions,
   .plans-actions {
-    margin-top: 14px;
+    margin-top: 0;
+    padding: 16px;
+    border-radius: 18px;
   }
   #s-practice,
   #s-practice-voice,
