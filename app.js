@@ -1079,7 +1079,12 @@ async function submitAuth() {
     }
     await refreshAuthState({ silent: true });
   } catch (error) {
-    setAuthStatus(error.message || 'Could not complete account action.', 'fail');
+    const message = String(error.message || 'Could not complete account action.');
+    if (/rate limit/i.test(message) && authMode === 'signup') {
+      setAuthStatus('Supabase email sending is temporarily rate-limited. Wait a few minutes, then try again. If your first signup already went through, use Sign In instead.', 'fail');
+    } else {
+      setAuthStatus(message, 'fail');
+    }
   } finally {
     if (primaryBtn) primaryBtn.disabled = false;
   }

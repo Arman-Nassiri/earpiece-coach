@@ -72,15 +72,15 @@ html, body {
 @media (max-width: 767px) {
   .screen { min-height: var(--app-height); }
 }
-#s-launch, #s-key, #s-gate { transform: translateY(16px); }
-#s-launch.active, #s-key.active, #s-gate.active { transform: translateY(0); }
+#s-launch, #s-key, #s-auth, #s-gate { transform: translateY(16px); }
+#s-launch.active, #s-key.active, #s-auth.active, #s-gate.active { transform: translateY(0); }
 .screen.active { opacity: 1; pointer-events: all; transform: translateX(0); }
 .screen.leaving {
   opacity: 0; transform: translateX(-30%);
   transition: opacity 0.22s var(--ease), transform 0.25s var(--ease);
   pointer-events: none;
 }
-#s-launch.leaving, #s-key.leaving, #s-gate.leaving { transform: translateY(-14px); }
+#s-launch.leaving, #s-key.leaving, #s-auth.leaving, #s-gate.leaving { transform: translateY(-14px); }
 
 /* ── SHARED ── */
 .field-label {
@@ -200,7 +200,7 @@ html, body {
    DESKTOP: entry screens — full bleed, no phone card
 ───────────────────────────────────────────────────── */
 @media (min-width: 768px) {
-  #s-launch, #s-key, #s-gate {
+  #s-launch, #s-key, #s-auth, #s-gate {
     align-items: center;
     justify-content: center;
   }
@@ -252,7 +252,7 @@ html, body {
 /* ─────────────────────────────────────────────────────
    S-KEY
 ───────────────────────────────────────────────────── */
-#s-key { align-items: center; justify-content: flex-end; padding: 0; }
+#s-key, #s-auth { align-items: center; justify-content: flex-end; padding: 0; }
 .key-inner {
   width: 100%; max-width: 480px;
   padding: var(--top-safe-gap) 28px calc(var(--sab) + 44px);
