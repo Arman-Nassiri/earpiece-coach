@@ -409,7 +409,7 @@ html, body {
 .key-verify-status.spin { color: var(--text3); }
 .auth-screen-tabs {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
   gap: 8px;
 }
 .auth-content-stack,
@@ -548,6 +548,64 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+.auth-admin-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.admin-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-refresh-btn {
+  width: auto;
+  min-width: 112px;
+  flex-shrink: 0;
+}
+.admin-users-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.admin-user-entry {
+  padding: 14px 15px;
+  border-radius: var(--rs);
+  border: 1.5px solid var(--border);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg2) 100%);
+}
+.admin-user-entry-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-user-email {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--text2);
+  word-break: break-word;
+}
+.admin-user-chips {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.admin-user-meta-row {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+.admin-user-meta {
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text3);
 }
 .auth-history-list {
   display: flex;
@@ -785,11 +843,23 @@ html, body {
   .auth-settings-grid {
     grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
   }
+  .admin-user-meta-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   .auth-inner {
     max-width: 900px;
   }
   .plans-inner {
     max-width: 980px;
+  }
+}
+
+@media (max-width: 767px) {
+  .admin-panel-head {
+    flex-direction: column;
+  }
+  .admin-refresh-btn {
+    width: 100%;
   }
 }
 

@@ -561,6 +561,7 @@ let liveRealtimeModel = 'gpt-realtime';
 let activeRunId = '';
 let pendingNavTimer = 0;
 let pendingAccountFocus = '';
+let activeAccountTab = 'account';
 let authMode = 'signin';
 let authState = {
   configured: false,
@@ -568,6 +569,13 @@ let authState = {
   authenticated: false,
   user: null,
   account: null
+};
+let adminUsersState = {
+  loaded: false,
+  loading: false,
+  users: [],
+  error: '',
+  generatedAt: ''
 };
 
 const REALTIME_MODELS = {
@@ -968,7 +976,8 @@ function getBillingState() {
     planCode: '',
     currentPeriodEnd: null,
     canManage: false,
-    isPaid: false
+    isPaid: false,
+    isAdminGrant: false
   };
 }
 
@@ -1006,6 +1015,16 @@ function hasAppAccessCredential() {
   return authState.authenticated && (SecureStore.has() || accountHasSavedOpenAIKey() || access.features.hostedKeyAvailable);
 }
 
+function getAdminState() {
+  return authState.account?.admin || {
+    isAdmin: false
+  };
+}
+
+function isAdminAccount() {
+  return !!getAdminState().isAdmin;
+}
+
 function getSignedInDefaultScreen() {
   return 's-home';
 }
@@ -1041,6 +1060,16 @@ function formatBillingStatusLabel(status) {
   if (value === 'past_due') return 'Past Due';
   if (value === 'canceled') return 'Canceled';
   return 'Inactive';
+}
+
+function resetAdminUsersState() {
+  adminUsersState = {
+    loaded: false,
+    loading: false,
+    users: [],
+    error: '',
+    generatedAt: ''
+  };
 }
 
 function formatBillingPeriodEnd(value) {
@@ -1142,6 +1171,137 @@ function renderAccountHistory() {
     </div>`).join('');
 }
 
+function renderAdminPanel() {
+  const tab = document.getElementById('authTabAdmin');
+  const label = document.getElementById('authAdminLabel');
+  const card = document.getElementById('authAdminCard');
+  const meta = document.getElementById('authAdminMeta');
+  const list = document.getElementById('authAdminList');
+  if (!tab || !label || !card || !meta || !list) return;
+
+  const visible = authState.authenticated && isAdminAccount();
+  tab.style.display = visible ? 'block' : 'none';
+  label.style.display = visible ? 'block' : 'none';
+  card.style.display = visible ? 'flex' : 'none';
+  if (!visible) return;
+
+  if (adminUsersState.loading) {
+    meta.textContent = 'Loading users, plans, and current access…';
+    list.innerHTML = `
+      <div class="admin-user-entry">
+        <div class="auth-history-entry-title">Loading admin view…</div>
+        <div class="auth-history-entry-sub">Pulling current account, plan, and key state from the server.</div>
+      </div>`;
+    return;
+  }
+
+  if (adminUsersState.error) {
+    meta.textContent = adminUsersState.error;
+    list.innerHTML = `
+      <div class="admin-user-entry">
+        <div class="auth-history-entry-title">Could not load admin data</div>
+        <div class="auth-history-entry-sub">Try refreshing the admin tab again.</div>
+      </div>`;
+    return;
+  }
+
+  const users = Array.isArray(adminUsersState.users) ? adminUsersState.users : [];
+  if (!adminUsersState.loaded) {
+    meta.textContent = 'Admin-only view of every Cue user and the access attached to each account.';
+    list.innerHTML = `
+      <div class="admin-user-entry">
+        <div class="auth-history-entry-title">Admin dashboard ready</div>
+        <div class="auth-history-entry-sub">Open this tab any time to inspect users and plan state.</div>
+      </div>`;
+    return;
+  }
+
+  meta.textContent = `${users.length} user${users.length === 1 ? '' : 's'} loaded${adminUsersState.generatedAt ? ` • refreshed ${formatDateTimeShort(adminUsersState.generatedAt)}` : ''}`;
+  if (!users.length) {
+    list.innerHTML = `
+      <div class="admin-user-entry">
+        <div class="auth-history-entry-title">No users found</div>
+        <div class="auth-history-entry-sub">No account records are available yet.</div>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = users.map(user => {
+    const displayName = user.displayName || 'No display name';
+    const keyLabel = user.hasSavedKey ? `BYOK •••• ${user.savedKeyLast4}` : (user.hostedKeyAvailable ? 'Hosted usage eligible' : 'No saved key');
+    const periodEnd = user.currentPeriodEnd ? `Renews ${formatBillingPeriodEnd(user.currentPeriodEnd)}` : '';
+    const usage = user.planCode === 'free'
+      ? `${user.liveSessionsUsedThisMonth || 0} / 3 live sessions used this month`
+      : `${user.liveSessionsUsedThisMonth || 0} live sessions this month`;
+    const statusBits = [
+      user.role === 'admin' ? 'Admin' : 'User',
+      user.planLabel || user.planName || 'Free',
+      formatBillingStatusLabel(user.planStatus),
+      periodEnd
+    ].filter(Boolean).join(' • ');
+    return `
+      <div class="admin-user-entry">
+        <div class="admin-user-entry-top">
+          <div>
+            <div class="auth-history-entry-title">${escapeHtml(displayName)}</div>
+            <div class="admin-user-email">${escapeHtml(user.email || '—')}</div>
+          </div>
+          <div class="admin-user-chips">
+            <div class="auth-history-entry-chip">${escapeHtml(user.planCode || 'free')}</div>
+            ${user.role === 'admin' ? '<div class="auth-history-entry-chip">admin</div>' : ''}
+          </div>
+        </div>
+        <div class="auth-history-entry-sub">${escapeHtml(statusBits)}</div>
+        <div class="admin-user-meta-row">
+          <div class="admin-user-meta">${escapeHtml(keyLabel)}</div>
+          <div class="admin-user-meta">${escapeHtml(usage)}</div>
+          <div class="admin-user-meta">${escapeHtml(user.createdAt ? `Joined ${formatBillingPeriodEnd(user.createdAt)}` : 'Join date unavailable')}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function loadAdminUsers({ force = false } = {}) {
+  if (!authState.authenticated || !isAdminAccount()) return;
+  if (adminUsersState.loading) return;
+  if (adminUsersState.loaded && !force) {
+    renderAdminPanel();
+    return;
+  }
+
+  adminUsersState.loading = true;
+  adminUsersState.error = '';
+  renderAdminPanel();
+  try {
+    const data = await authRequest('/api/admin/users', {
+      method: 'GET'
+    });
+    adminUsersState = {
+      loaded: true,
+      loading: false,
+      users: Array.isArray(data?.users) ? data.users : [],
+      error: '',
+      generatedAt: data?.generatedAt || ''
+    };
+  } catch (error) {
+    adminUsersState = {
+      loaded: false,
+      loading: false,
+      users: [],
+      error: error.message || 'Could not load the admin dashboard.',
+      generatedAt: ''
+    };
+  }
+  renderAdminPanel();
+}
+
+function openAdminTab() {
+  if (!isAdminAccount()) return;
+  activeAccountTab = 'admin';
+  openAccountScreen({ focusAdmin: true });
+  loadAdminUsers();
+}
+
 function syncSavedKeyUI() {
   const rememberWrap = document.getElementById('rememberKeyWrap');
   const rememberToggle = document.getElementById('rememberKeyToggle');
@@ -1194,6 +1354,8 @@ function renderAuthState() {
   const keySupportNote = document.getElementById('accountKeySupportNote');
   const keyContinueBtn = document.getElementById('accountKeyContinueBtn');
   const keyDeleteBtn = document.getElementById('accountKeyDeleteBtn');
+  const accountTab = document.getElementById('authTabAccount');
+  const adminTab = document.getElementById('authTabAdmin');
   const billing = getBillingState();
   const access = getAccessState();
   const accountButtons = [
@@ -1208,6 +1370,7 @@ function renderAuthState() {
 
   if (tabSignin) tabSignin.classList.toggle('active', authMode === 'signin');
   if (tabSignup) tabSignup.classList.toggle('active', authMode === 'signup');
+  if (accountTab) accountTab.classList.toggle('active', activeAccountTab !== 'admin');
 
   if (signedOut) signedOut.style.display = authState.authenticated ? 'none' : 'block';
   if (signedIn) signedIn.style.display = authState.authenticated ? 'block' : 'none';
@@ -1219,7 +1382,9 @@ function renderAuthState() {
 
   if (subcopy) {
     subcopy.textContent = authState.authenticated
-      ? `${access.planLabel} account active. Keys, usage, and plan entitlements follow this login across devices.`
+      ? billing.isAdminGrant
+        ? 'Admin account active. This login has full Exotic access and the private admin dashboard without Stripe billing.'
+        : `${access.planLabel} account active. Keys, usage, and plan entitlements follow this login across devices.`
       : 'Secure sign-in for Cue. Accounts are now required for Free, Pro, and Exotic.';
   }
   if (note) {
@@ -1243,6 +1408,8 @@ function renderAuthState() {
   if (summaryMeta) {
     if (!authState.authenticated) {
       summaryMeta.textContent = 'Checking account status...';
+    } else if (billing.isAdminGrant) {
+      summaryMeta.textContent = 'Admin access is active. Exotic features are unlocked on this account and the admin-only user view is available below.';
     } else if (billing.isPaid) {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
       summaryMeta.textContent = `${billing.planName} plan ${formatBillingStatusLabel(billing.planStatus).toLowerCase()}${renewal ? ` through ${renewal}` : ''}. ${access.features.hostedKeyAvailable ? 'Hosted key usage is available.' : 'BYOK still works here too.'}`;
@@ -1264,7 +1431,9 @@ function renderAuthState() {
     overviewPlan.textContent = billing.isPaid ? billing.planName : 'Free';
   }
   if (overviewPlanSub) {
-    if (billing.isPaid) {
+    if (billing.isAdminGrant) {
+      overviewPlanSub.textContent = 'Admin grant active. This account carries full Exotic access without using a Stripe subscription.';
+    } else if (billing.isPaid) {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
       overviewPlanSub.textContent = `${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}. Manage it from the Plans tab whenever you need to change or cancel.`;
     } else {
@@ -1278,7 +1447,9 @@ function renderAuthState() {
   }
   if (overviewUsageSub) {
     if (access.sessionLimit === null) {
-      overviewUsageSub.textContent = `${access.planLabel} includes unlimited live sessions. Practice mode stays unlimited too.`;
+      overviewUsageSub.textContent = billing.isAdminGrant
+        ? 'Admin access carries unlimited live sessions and every currently unlocked plan feature.'
+        : `${access.planLabel} includes unlimited live sessions. Practice mode stays unlimited too.`;
     } else if (access.activeLiveSession?.expiresAt) {
       overviewUsageSub.textContent = `An active live window is open until ${formatDateTimeShort(access.activeLiveSession.expiresAt)}. Reopening Live before then does not use another session.`;
     } else {
@@ -1294,7 +1465,9 @@ function renderAuthState() {
   }
   if (keySupportNote) {
     keySupportNote.textContent = access.features.hostedKeyAvailable
-      ? 'Hosted access is live on this account. Save your own key only if you want to use private BYOK instead.'
+      ? billing.isAdminGrant
+        ? 'Hosted access is live on this admin account. Save your own key only if you want private BYOK to override hosted usage.'
+        : 'Hosted access is live on this account. Save your own key only if you want to use private BYOK instead.'
       : 'Save your own key for private BYOK access. Free live usage is counted in 2-hour windows. Practice mode stays unlimited.';
   }
   if (keyContinueBtn) {
@@ -1302,8 +1475,13 @@ function renderAuthState() {
     keyContinueBtn.textContent = accountHasSavedOpenAIKey() ? 'Continue to Cue' : 'Use Hosted Access';
   }
   if (keyDeleteBtn) keyDeleteBtn.style.display = accountHasSavedOpenAIKey() ? 'block' : 'none';
+  if (adminTab) {
+    adminTab.style.display = authState.authenticated && isAdminAccount() ? 'block' : 'none';
+    adminTab.classList.toggle('active', activeAccountTab === 'admin');
+  }
   syncSavedKeyUI();
   renderAccountHistory();
+  renderAdminPanel();
   renderScenarioAccessState();
 }
 
@@ -1323,6 +1501,8 @@ function applyPendingAccountFocus() {
     ? document.getElementById('accountKeyCard')
     : pendingAccountFocus === 'plans'
       ? document.getElementById('authOverviewPlan')
+      : pendingAccountFocus === 'admin'
+        ? document.getElementById('authAdminCard')
       : null;
   pendingAccountFocus = '';
   if (!target) return;
@@ -1336,7 +1516,9 @@ function goBackFromAccount() {
 }
 
 function openAccountScreen(options = {}) {
+  activeAccountTab = options.focusAdmin ? 'admin' : 'account';
   if (options.focusKey) queueAccountFocus('key');
+  if (options.focusAdmin) queueAccountFocus('admin');
   renderAuthState();
   go('s-auth');
   setTimeout(applyPendingAccountFocus, 90);
@@ -1362,19 +1544,25 @@ function renderPlansState() {
   ];
   if (subcopy) {
     subcopy.textContent = authState.authenticated
-      ? 'One signed-in account now controls key storage, session limits, scenario access, and every paid upgrade.'
+      ? billing.isAdminGrant
+        ? 'This login is on the server admin list, so Exotic access is granted without Stripe billing.'
+        : 'One signed-in account now controls key storage, session limits, scenario access, and every paid upgrade.'
       : 'Create an account first, then choose the plan that matches how much of Cue you want unlocked.';
   }
   if (heroTitle) {
     heroTitle.textContent = authState.authenticated
-      ? billing.isPaid
+      ? billing.isAdminGrant
+        ? 'Admin grant is active on this Cue account.'
+        : billing.isPaid
         ? `${billing.planName} is attached to this Cue account.`
         : 'Free is active on this account right now.'
       : 'One account controls your key path, session limits, scenario access, and how much of Cue is automated.';
   }
   if (heroCopy) {
     heroCopy.textContent = authState.authenticated
-      ? billing.isPaid
+      ? billing.isAdminGrant
+        ? 'Exotic access is unlocked without Stripe for this admin login. Regular users still use the plans below.'
+        : billing.isPaid
         ? 'Billing, renewals, and future plan changes stay tied to this identity without changing how the rest of Cue works.'
         : 'Free keeps Cue intentionally narrow: saved BYOK, 3 live sessions per month, and the first 3 scenarios.'
       : 'Sign in first, then subscribe from the same account you will use inside Cue.';
@@ -1382,6 +1570,8 @@ function renderPlansState() {
   if (heroStatus) {
     if (!authState.authenticated) {
       heroStatus.textContent = 'Sign in to start subscription checkout.';
+    } else if (billing.isAdminGrant) {
+      heroStatus.textContent = 'Exotic • Admin grant active';
     } else if (billing.isPaid) {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
       heroStatus.textContent = `${billing.planName} • ${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}`;
@@ -1392,7 +1582,9 @@ function renderPlansState() {
     }
   }
   if (noteCopy) {
-    noteCopy.textContent = billing.isPaid
+    noteCopy.textContent = billing.isAdminGrant
+      ? 'This account is elevated by the server admin list. Stripe remains the normal path for everyone else.'
+      : billing.isPaid
       ? 'Your account already has managed billing attached. Use the portal for card updates, invoice history, cancellations, or plan changes.'
       : 'Free is narrow on purpose. Pro unlocks the main app cleanly. Exotic unlocks the AI brief builder, custom scenarios, and deeper post-session analysis.';
   }
@@ -1400,7 +1592,9 @@ function renderPlansState() {
   if (freeBadge) freeBadge.textContent = billing.isPaid ? 'Available' : 'Current Plan';
   if (freeStatus) {
     freeStatus.textContent = authState.authenticated
-      ? access.sessionLimit === null
+      ? billing.isAdminGrant
+        ? 'This admin account sits above Free and carries full Exotic access.'
+        : access.sessionLimit === null
         ? 'This account is currently on a paid plan.'
         : `${access.sessionsUsedThisMonth || 0} of ${access.sessionLimit} monthly live sessions used.`
       : 'Every account starts here unless a paid plan is attached.';
@@ -1448,7 +1642,7 @@ function renderPlansState() {
           : switching
             ? `Switch to ${plan.label}`
             : `Choose ${plan.label}`;
-      button.disabled = false;
+      button.disabled = !!currentPlan && !billing.canManage;
     }
     if (card) card.classList.toggle('current-plan', currentPlan);
   });
@@ -1471,8 +1665,13 @@ async function startPlanCheckout(planCode) {
     setPlansStatus('Stripe billing is not configured yet.', 'fail');
     return;
   }
-  if (getBillingState().isPaid && getBillingState().planCode === planCode && getBillingState().canManage) {
-    await openBillingPortal();
+  const billing = getBillingState();
+  if (billing.isPaid && billing.planCode === planCode) {
+    if (billing.canManage) {
+      await openBillingPortal();
+      return;
+    }
+    setPlansStatus(billing.isAdminGrant ? 'This account already has admin-granted Exotic access.' : 'This plan is already active on this account.', 'ok');
     return;
   }
 
@@ -1673,6 +1872,10 @@ async function refreshAuthState({ silent = false } = {}) {
       user: data?.user || null,
       account: data?.account || null
     };
+    if (!authState.authenticated || !authState.account?.admin?.isAdmin) {
+      activeAccountTab = 'account';
+      resetAdminUsersState();
+    }
     if (!silent) setAuthStatus(authState.authenticated ? 'Session active' : '', authState.authenticated ? 'ok' : '');
   } catch (_) {
     authState = {
@@ -1682,6 +1885,8 @@ async function refreshAuthState({ silent = false } = {}) {
       user: null,
       account: null
     };
+    activeAccountTab = 'account';
+    resetAdminUsersState();
     if (!silent) setAuthStatus('Could not reach account service.', 'fail');
   }
   renderAuthState();
@@ -1735,6 +1940,8 @@ async function signOutAccount() {
     await authRequest('/api/auth/signout', { body: {} });
     SecureStore.clear();
     activeRunId = '';
+    resetAdminUsersState();
+    activeAccountTab = 'account';
     authState = {
       configured: authState.configured,
       checked: true,

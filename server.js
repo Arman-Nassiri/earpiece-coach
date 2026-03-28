@@ -21,6 +21,12 @@ const STRIPE_SECRET_KEY = String(process.env.STRIPE_SECRET_KEY || '').trim();
 const STRIPE_WEBHOOK_SECRET = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
 const STRIPE_PRICE_PRO = String(process.env.STRIPE_PRICE_PRO || '').trim();
 const STRIPE_PRICE_EXOTIC = String(process.env.STRIPE_PRICE_EXOTIC || process.env.STRIPE_PRICE_DEAL || '').trim();
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS || '')
+    .split(',')
+    .map(value => value.trim().toLowerCase())
+    .filter(Boolean)
+);
 const liveCallWindows = new Map();
 const stripeSubscriptionCache = new Map();
 const ALLOWED_REALTIME_MODELS = new Set(['gpt-realtime', 'gpt-realtime-mini']);
@@ -179,6 +185,10 @@ function hasStripeBilling() {
 
 function hasStripeWebhookSupport() {
   return !!(STRIPE_SECRET_KEY && STRIPE_WEBHOOK_SECRET);
+}
+
+function isAdminEmail(email) {
+  return ADMIN_EMAILS.has(String(email || '').trim().toLowerCase());
 }
 
 function readBody(req) {
@@ -451,6 +461,34 @@ function buildLiveSessionWindow(run) {
 
 function hasHostedOpenAIKeyAvailable() {
   return ALLOW_SERVER_KEY_LIVE && validateOpenAIKey(OPENAI_API_KEY || '');
+}
+
+function buildDefaultBillingState() {
+  return {
+    enabled: hasStripeBilling(),
+    planTier: 'free',
+    planStatus: 'inactive',
+    planName: 'Free',
+    planCode: 'free',
+    currentPeriodEnd: null,
+    canManage: false,
+    isPaid: false,
+    isAdminGrant: false
+  };
+}
+
+function buildAdminGrantBillingState(baseBilling = buildDefaultBillingState()) {
+  return {
+    ...baseBilling,
+    planTier: 'private',
+    planStatus: 'active',
+    planName: 'Exotic',
+    planCode: 'exotic',
+    currentPeriodEnd: null,
+    canManage: false,
+    isPaid: true,
+    isAdminGrant: true
+  };
 }
 
 function buildAccessState(billing, options = {}) {
@@ -975,17 +1013,12 @@ async function upsertAnalysisReport(userId, runId, payload = {}) {
 
 async function fetchBillingStateForUser(userId) {
   const billing = await fetchBillingAccountForUser(userId);
+  return resolveBillingStateFromRecord(billing);
+}
+
+async function resolveBillingStateFromRecord(billing) {
   if (!billing) {
-    return {
-      enabled: hasStripeBilling(),
-      planTier: 'free',
-      planStatus: 'inactive',
-      planName: 'Free',
-      planCode: 'free',
-      currentPeriodEnd: null,
-      canManage: false,
-      isPaid: false
-    };
+    return buildDefaultBillingState();
   }
 
   let summary = null;
@@ -1023,7 +1056,8 @@ async function fetchBillingStateForUser(userId) {
     planCode: isPaid ? (summary?.planCode || 'free') : 'free',
     currentPeriodEnd: summary?.currentPeriodEnd || billing.current_period_end || null,
     canManage: hasStripeBilling() && !manualPlanCode && !!String(summary?.stripeCustomerId || billing.stripe_customer_id || '').trim(),
-    isPaid
+    isPaid,
+    isAdminGrant: false
   };
 }
 
@@ -1076,17 +1110,11 @@ async function fetchAccountStateForUser(user) {
     email: String(user?.email || '').trim(),
     onboardingComplete: false,
     savedKey: null,
-    billing: {
-      enabled: hasStripeBilling(),
-      planTier: 'free',
-      planStatus: 'inactive',
-      planName: 'Free',
-      planCode: 'free',
-      currentPeriodEnd: null,
-      canManage: false,
-      isPaid: false
-    },
+    billing: buildDefaultBillingState(),
     access: buildAccessState({ planCode: 'free' }, { savedKey: false, sessionsUsedThisMonth: 0 }),
+    admin: {
+      isAdmin: isAdminEmail(user?.email)
+    },
     history: {
       available: false,
       entries: []
@@ -1126,7 +1154,10 @@ async function fetchAccountStateForUser(user) {
         updatedAt: keyData[0].updated_at || null
       }
     : null;
-  const access = buildAccessState(billing, {
+  const accountEmail = String(profile?.email || fallback.email).trim();
+  const isAdmin = isAdminEmail(accountEmail);
+  const effectiveBilling = isAdmin ? buildAdminGrantBillingState(billing || fallback.billing) : (billing || fallback.billing);
+  const access = buildAccessState(effectiveBilling, {
     savedKey: !!savedKey,
     sessionsUsedThisMonth,
     activeLiveSession: activeLiveSessionRun?.window || null
@@ -1135,16 +1166,99 @@ async function fetchAccountStateForUser(user) {
 
   return {
     displayName: String(profile?.display_name || fallback.displayName).trim(),
-    email: String(profile?.email || fallback.email).trim(),
+    email: accountEmail,
     onboardingComplete: !!profile?.onboarding_complete,
     savedKey,
-    billing: billing || fallback.billing,
+    billing: effectiveBilling,
     access,
+    admin: {
+      isAdmin
+    },
     history: {
       available: access.features.sessionHistory,
       entries: historyEntries
     }
   };
+}
+
+async function fetchAdminUserSummaries() {
+  if (!hasSupabaseAdmin()) throw new Error('Supabase admin access is not configured.');
+  const [{ data: profileData }, { data: billingData }, { data: keyData }, { data: liveRunData }] = await Promise.all([
+    supabaseAdminFetch(buildSupabaseRestPath('profiles', {
+      select: 'id,email,display_name,onboarding_complete,created_at,updated_at',
+      order: 'created_at.desc',
+      limit: 500
+    })),
+    supabaseAdminFetch(buildSupabaseRestPath('billing_accounts', {
+      select: 'user_id,plan_tier,plan_status,stripe_customer_id,stripe_subscription_id,current_period_end,updated_at',
+      limit: 500
+    })),
+    supabaseAdminFetch(buildSupabaseRestPath('user_api_keys', {
+      provider: 'eq.openai',
+      is_active: 'eq.true',
+      select: 'user_id,key_last4,updated_at',
+      order: 'updated_at.desc',
+      limit: 1000
+    })),
+    supabaseAdminFetch(buildSupabaseRestPath('negotiation_runs', {
+      mode: 'eq.live',
+      started_at: `gte.${getMonthStartIso()}`,
+      status: 'neq.failed',
+      select: 'user_id',
+      limit: 2000
+    }))
+  ]);
+
+  const profiles = Array.isArray(profileData) ? profileData : [];
+  const billingsByUserId = new Map(
+    (Array.isArray(billingData) ? billingData : [])
+      .filter(row => row?.user_id)
+      .map(row => [row.user_id, row])
+  );
+  const savedKeysByUserId = new Map();
+  (Array.isArray(keyData) ? keyData : []).forEach(row => {
+    if (!row?.user_id || savedKeysByUserId.has(row.user_id)) return;
+    savedKeysByUserId.set(row.user_id, row);
+  });
+  const liveSessionsByUserId = new Map();
+  (Array.isArray(liveRunData) ? liveRunData : []).forEach(row => {
+    if (!row?.user_id) return;
+    liveSessionsByUserId.set(row.user_id, (liveSessionsByUserId.get(row.user_id) || 0) + 1);
+  });
+
+  const users = await Promise.all(profiles.map(async profile => {
+    const billing = await resolveBillingStateFromRecord(billingsByUserId.get(profile.id) || null);
+    const isAdmin = isAdminEmail(profile.email);
+    const effectiveBilling = isAdmin ? buildAdminGrantBillingState(billing) : billing;
+    const savedKey = savedKeysByUserId.get(profile.id) || null;
+    const sessionsUsedThisMonth = liveSessionsByUserId.get(profile.id) || 0;
+    const access = buildAccessState(effectiveBilling, {
+      savedKey: !!savedKey,
+      sessionsUsedThisMonth
+    });
+    return {
+      id: String(profile.id || '').trim(),
+      email: String(profile.email || '').trim(),
+      displayName: String(profile.display_name || '').trim(),
+      onboardingComplete: !!profile.onboarding_complete,
+      role: isAdmin ? 'admin' : 'user',
+      createdAt: profile.created_at || null,
+      updatedAt: profile.updated_at || null,
+      planCode: effectiveBilling.planCode,
+      planName: effectiveBilling.planName,
+      planStatus: effectiveBilling.planStatus,
+      planLabel: effectiveBilling.isAdminGrant ? `${effectiveBilling.planName} (Admin)` : effectiveBilling.planName,
+      currentPeriodEnd: effectiveBilling.currentPeriodEnd,
+      hasSavedKey: !!savedKey,
+      savedKeyLast4: String(savedKey?.key_last4 || '').trim(),
+      liveSessionsUsedThisMonth: sessionsUsedThisMonth,
+      liveSessionsRemaining: access.sessionsRemaining,
+      hostedKeyAvailable: !!access.features?.hostedKeyAvailable
+    };
+  }));
+
+  users.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+  return users;
 }
 
 async function fetchStoredOpenAIKey(userId) {
@@ -1662,6 +1776,30 @@ const server = http.createServer(async (req, res) => {
       await deleteStoredOpenAIKey(user.id);
       const account = await fetchAccountStateForUser(user);
       sendJson(res, 200, { ok: true, account }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
+    if (req.method === 'GET' && req.url === '/api/admin/users') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site admin requests are not allowed.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const account = await fetchAccountStateForUser(user);
+      if (!account?.admin?.isAdmin) {
+        sendJson(res, 403, { error: 'Admin access required.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const users = await fetchAdminUserSummaries();
+      sendJson(res, 200, {
+        ok: true,
+        users,
+        generatedAt: new Date().toISOString()
+      }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
       return;
     }
 

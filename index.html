@@ -141,8 +141,9 @@
       <div class="key-sub" id="authSubcopy">Secure sign-in for Cue. Billing and saved API keys will live here.</div>
       <div class="auth-content-stack">
         <div class="auth-screen-tabs">
-          <button class="ptab active" type="button">Account</button>
-          <button class="ptab" type="button" onclick="openPlansScreen()">Plans</button>
+          <button class="ptab active" type="button" id="authTabAccount" onclick="openAccountScreen()">Account</button>
+          <button class="ptab" type="button" id="authTabPlans" onclick="openPlansScreen()">Plans</button>
+          <button class="ptab" type="button" id="authTabAdmin" style="display:none;" onclick="openAdminTab()">Admin</button>
         </div>
 
         <div class="auth-panel" id="authSignedOut">
@@ -244,6 +245,17 @@
           <div class="auth-summary-label" id="authHistoryTitle">Saved Session Debriefs</div>
           <div class="auth-summary-meta" id="authHistoryMeta">Recent sessions and saved reviews appear here on eligible plans.</div>
           <div class="auth-history-list" id="authHistoryList"></div>
+        </div>
+        <div class="auth-section-label" id="authAdminLabel" style="display:none;">Admin</div>
+        <div class="auth-summary-card auth-admin-card" id="authAdminCard" style="display:none;">
+          <div class="admin-panel-head">
+            <div>
+              <div class="auth-summary-label">User Access Overview</div>
+              <div class="auth-summary-meta" id="authAdminMeta">Admin-only view of every Cue account and the plan currently attached to it.</div>
+            </div>
+            <button class="btn ghost admin-refresh-btn" type="button" onclick="loadAdminUsers({ force: true })">Refresh</button>
+          </div>
+          <div class="admin-users-list" id="authAdminList"></div>
         </div>
       </div>
     </div>
