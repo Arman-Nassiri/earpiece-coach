@@ -133,7 +133,7 @@
 <div class="screen" id="s-auth">
   <div class="key-inner auth-inner">
     <div class="key-back-row">
-      <div class="key-back" onclick="go(getDefaultEntryScreen())">&#8592;</div>
+      <div class="key-back" onclick="goBackFromAccount()">&#8592;</div>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
     </div>
     <div class="key-top auth-key-top">
@@ -213,7 +213,7 @@
           <div class="auth-overview-card">
             <div class="auth-summary-label">Usage</div>
             <div class="auth-overview-value" id="authOverviewUsage">3 left</div>
-            <div class="auth-overview-sub" id="authOverviewUsageSub">Free includes 3 sessions per month and the first 3 scenarios.</div>
+            <div class="auth-overview-sub" id="authOverviewUsageSub">Free includes 3 live sessions per month and the first 3 scenarios.</div>
           </div>
         </div>
 
@@ -226,19 +226,17 @@
             <input class="field-input" id="accountDisplayNameInput" type="text" placeholder="Your name" autocomplete="name" spellcheck="false"/>
             <button class="btn ghost" id="accountProfileSaveBtn" onclick="saveAccountProfile()">Save Profile</button>
           </div>
-          <div class="auth-settings-card">
-            <div class="auth-summary-label">Saved OpenAI Key</div>
+          <div class="auth-settings-card" id="accountKeyCard">
+            <div class="auth-summary-label">OpenAI Access</div>
             <div class="auth-summary-meta" id="accountKeyState">No saved OpenAI key on this account yet.</div>
-            <div class="auth-card-intro">Cue stores your personal OpenAI key as encrypted server-side ciphertext and only decrypts it during server-side requests.</div>
+            <div class="auth-card-intro" id="accountKeySupportNote">Save your own key for private BYOK access, or use hosted access automatically when this plan includes it.</div>
             <div class="field-label">OpenAI API Key</div>
             <input class="field-input" id="accountOpenAIKeyInput" type="password" placeholder="Paste a key to save it securely" autocomplete="off" spellcheck="false"/>
-            <div class="security-badge auth-settings-security">
-              <div class="security-badge-text">
-                <strong>Encrypted at rest.</strong> Cue stores saved personal keys as server-side ciphertext and never returns the raw key to the browser after save.
-              </div>
+            <div class="auth-key-actions">
+              <button class="btn" id="accountKeySaveBtn" onclick="saveAccountApiKey()">Save Key</button>
+              <button class="btn ghost" id="accountKeyContinueBtn" style="display:none;" onclick="continueFromAccount()">Continue to Cue</button>
+              <button class="btn ghost" id="accountKeyDeleteBtn" style="display:none;" onclick="deleteAccountApiKey()">Delete Saved Key</button>
             </div>
-            <button class="btn" id="accountKeySaveBtn" onclick="saveAccountApiKey()">Save Key</button>
-            <button class="btn ghost" id="accountKeyDeleteBtn" style="display:none;" onclick="deleteAccountApiKey()">Delete Saved Key</button>
           </div>
         </div>
         <div class="auth-section-label" id="authHistoryLabel" style="display:none;">Session History</div>
@@ -295,7 +293,7 @@
             <ul class="plan-feature-list">
               <li>Account required</li>
               <li>BYOK stored privately</li>
-              <li>3 sessions / month</li>
+              <li>3 live sessions / month</li>
               <li>3 scenarios only</li>
             </ul>
             <div class="plan-card-actions">
@@ -379,7 +377,6 @@
       </button>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
-      <button class="icon-btn" onclick="changeKey()" title="Manage saved key">&#8644;</button>
       <button class="icon-btn" onclick="goChat()" title="AI Chat" id="chatIconBtn">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M14 1H2C1.44772 1 1 1.44772 1 2V10C1 10.5523 1.44772 11 2 11H5V14.5L9.5 11H14C14.5523 11 15 10.5523 15 10V2C15 1.44772 14.5523 1 14 1Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
@@ -392,7 +389,7 @@
     <div class="section-label">Scenario</div>
     <div class="home-access-banner" id="homeAccessBanner" hidden>
       <div class="home-access-banner-copy">
-        <div class="home-access-banner-title" id="homeAccessBannerTitle">Free account: 3 scenarios and 3 sessions each month.</div>
+        <div class="home-access-banner-title" id="homeAccessBannerTitle">Free account: 3 scenarios and 3 live sessions each month.</div>
         <div class="home-access-banner-sub" id="homeAccessBannerSub">Upgrade when you want the full library, debriefs, and the higher-touch workflow.</div>
       </div>
       <button class="home-access-banner-btn" type="button" id="homeAccessBannerBtn" onclick="openPlansScreen()">Upgrade Plan</button>

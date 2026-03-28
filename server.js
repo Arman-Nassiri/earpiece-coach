@@ -28,6 +28,7 @@ const ACCESS_COOKIE = 'cue_sb_at';
 const REFRESH_COOKIE = 'cue_sb_rt';
 const REFRESH_COOKIE_MAX_AGE = 60 * 60 * 24 * 30;
 const STRIPE_SUBSCRIPTION_CACHE_TTL_MS = 60 * 1000;
+const LIVE_SESSION_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 const STRIPE_PLAN_CONFIG = Object.freeze({
   free: {
@@ -418,6 +419,36 @@ function getMonthStartIso(reference = new Date()) {
   return new Date(Date.UTC(reference.getUTCFullYear(), reference.getUTCMonth(), 1, 0, 0, 0, 0)).toISOString();
 }
 
+function getLiveWindowStartIso(reference = new Date()) {
+  return new Date(reference.getTime() - LIVE_SESSION_WINDOW_MS).toISOString();
+}
+
+function getLiveWindowExpiryIso(startedAt, metadata = {}) {
+  const metadataExpiry = String(metadata?.liveWindowExpiresAt || '').trim();
+  if (metadataExpiry) {
+    const parsed = new Date(metadataExpiry);
+    if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+  }
+  const startedDate = new Date(startedAt || Date.now());
+  if (Number.isNaN(startedDate.getTime())) return new Date(Date.now() + LIVE_SESSION_WINDOW_MS).toISOString();
+  return new Date(startedDate.getTime() + LIVE_SESSION_WINDOW_MS).toISOString();
+}
+
+function buildLiveSessionWindow(run) {
+  if (!run?.id || !run?.started_at) return null;
+  const startedDate = new Date(run.started_at);
+  if (Number.isNaN(startedDate.getTime())) return null;
+  const expiresAt = getLiveWindowExpiryIso(run.started_at, run.metadata || {});
+  const expiresDate = new Date(expiresAt);
+  if (Number.isNaN(expiresDate.getTime()) || expiresDate.getTime() <= Date.now()) return null;
+  return {
+    runId: String(run.id).trim(),
+    startedAt: startedDate.toISOString(),
+    expiresAt: expiresDate.toISOString(),
+    minutesRemaining: Math.max(1, Math.ceil((expiresDate.getTime() - Date.now()) / 60000))
+  };
+}
+
 function hasHostedOpenAIKeyAvailable() {
   return ALLOW_SERVER_KEY_LIVE && validateOpenAIKey(OPENAI_API_KEY || '');
 }
@@ -430,6 +461,9 @@ function buildAccessState(billing, options = {}) {
   const sessionsUsed = Math.max(0, Number(options.sessionsUsedThisMonth || 0));
   const sessionLimit = rule.sessionLimit;
   const sessionsRemaining = sessionLimit === null ? null : Math.max(0, sessionLimit - sessionsUsed);
+  const activeLiveSession = options.activeLiveSession && typeof options.activeLiveSession === 'object'
+    ? options.activeLiveSession
+    : null;
   const hostedKeyEligible = !!rule.features.hostedKey;
   const hostedKeyAvailable = hostedKeyEligible && hasHostedOpenAIKeyAvailable();
   const requiresSavedKey = !hostedKeyAvailable && !savedKey;
@@ -445,9 +479,10 @@ function buildAccessState(billing, options = {}) {
       hostedKeyEligible,
       hostedKeyAvailable
     },
-    canStartSession: sessionLimit === null || sessionsRemaining > 0,
+    canStartSession: sessionLimit === null || sessionsRemaining > 0 || !!activeLiveSession,
     requiresSavedKey,
-    hasSavedKey: savedKey
+    hasSavedKey: savedKey,
+    activeLiveSession
   };
 }
 
@@ -790,15 +825,34 @@ async function ensureStripeCustomerForUser(user, billingAccount = null) {
   return customerId;
 }
 
-async function countMonthlyNegotiationRuns(userId) {
+async function countMonthlyLiveSessionRuns(userId) {
   if (!userId || !hasSupabaseAdmin()) return 0;
   const { data } = await supabaseAdminFetch(buildSupabaseRestPath('negotiation_runs', {
     user_id: `eq.${userId}`,
+    mode: 'eq.live',
     started_at: `gte.${getMonthStartIso()}`,
     status: 'neq.failed',
     select: 'id'
   }));
   return Array.isArray(data) ? data.length : 0;
+}
+
+async function fetchActiveLiveSessionRun(userId) {
+  if (!userId || !hasSupabaseAdmin()) return null;
+  const { data } = await supabaseAdminFetch(buildSupabaseRestPath('negotiation_runs', {
+    user_id: `eq.${userId}`,
+    mode: 'eq.live',
+    started_at: `gte.${getLiveWindowStartIso()}`,
+    status: 'neq.failed',
+    select: 'id,mode,scenario_name,status,metadata,started_at,ended_at',
+    order: 'started_at.desc',
+    limit: 1
+  }));
+  const run = Array.isArray(data) ? (data[0] || null) : null;
+  if (!run) return null;
+  const window = buildLiveSessionWindow(run);
+  if (!window) return null;
+  return { run, window };
 }
 
 async function fetchRecentRunHistory(userId) {
@@ -1054,11 +1108,12 @@ async function fetchAccountStateForUser(user) {
     limit: 1
   });
 
-  const [{ data: profileData }, { data: keyData }, billing, sessionsUsedThisMonth] = await Promise.all([
+  const [{ data: profileData }, { data: keyData }, billing, sessionsUsedThisMonth, activeLiveSessionRun] = await Promise.all([
     supabaseAdminFetch(profilePath),
     supabaseAdminFetch(keyPath),
     fetchBillingStateForUser(user.id),
-    countMonthlyNegotiationRuns(user.id)
+    countMonthlyLiveSessionRuns(user.id),
+    fetchActiveLiveSessionRun(user.id)
   ]);
 
   const profile = Array.isArray(profileData) ? profileData[0] : null;
@@ -1073,7 +1128,8 @@ async function fetchAccountStateForUser(user) {
     : null;
   const access = buildAccessState(billing, {
     savedKey: !!savedKey,
-    sessionsUsedThisMonth
+    sessionsUsedThisMonth,
+    activeLiveSession: activeLiveSessionRun?.window || null
   });
   const historyEntries = access.features.sessionHistory ? await fetchRecentRunHistory(user.id) : [];
 
@@ -1641,26 +1697,65 @@ const server = http.createServer(async (req, res) => {
         }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
         return;
       }
-      if (!access.canStartSession) {
-        sendJson(res, 403, {
-          error: `Free includes ${access.sessionLimit} sessions per month. Upgrade to Pro for unlimited sessions.`
-        }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
-        return;
-      }
-      const run = await createNegotiationRun(user.id, {
-        mode,
-        scenarioName: scenarioName || scenarioId || 'Session',
-        status: 'in_progress',
-        metadata: {
-          scenarioId,
-          planCode: access.planCode,
-          planLabel: access.planLabel
+      let run = null;
+      let liveSessionAction = '';
+      if (mode === 'live') {
+        const reusableLiveSession = access.planCode === 'free'
+          ? await fetchActiveLiveSessionRun(user.id)
+          : null;
+        if (!reusableLiveSession && !access.canStartSession) {
+          sendJson(res, 403, {
+            error: `Free includes ${access.sessionLimit} live sessions per month. Upgrade to Pro for unlimited live access.`
+          }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+          return;
         }
-      });
+        if (reusableLiveSession?.run) {
+          liveSessionAction = 'reused';
+          const mergedMetadata = {
+            ...(reusableLiveSession.run.metadata && typeof reusableLiveSession.run.metadata === 'object' ? reusableLiveSession.run.metadata : {}),
+            scenarioId,
+            scenarioName: scenarioName || scenarioId || 'Session',
+            reopenedAt: new Date().toISOString()
+          };
+          run = await updateNegotiationRun(user.id, reusableLiveSession.run.id, {
+            status: 'in_progress',
+            ended_at: null,
+            metadata: mergedMetadata
+          });
+        } else {
+          liveSessionAction = 'started';
+          const startedAt = new Date().toISOString();
+          run = await createNegotiationRun(user.id, {
+            mode,
+            scenarioName: scenarioName || scenarioId || 'Session',
+            status: 'in_progress',
+            startedAt,
+            metadata: {
+              scenarioId,
+              planCode: access.planCode,
+              planLabel: access.planLabel,
+              liveWindowExpiresAt: getLiveWindowExpiryIso(startedAt),
+              liveWindowHours: 2
+            }
+          });
+        }
+      } else {
+        run = await createNegotiationRun(user.id, {
+          mode,
+          scenarioName: scenarioName || scenarioId || 'Session',
+          status: 'in_progress',
+          metadata: {
+            scenarioId,
+            planCode: access.planCode,
+            planLabel: access.planLabel
+          }
+        });
+      }
       const refreshedAccount = await fetchAccountStateForUser(user);
       sendJson(res, 200, {
         ok: true,
         runId: run?.id || '',
+        liveSessionAction,
         account: refreshedAccount
       }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
       return;

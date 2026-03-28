@@ -559,6 +559,8 @@ let liveLastAssistantAt = 0;
 let practiceReviewState = null;
 let liveRealtimeModel = 'gpt-realtime';
 let activeRunId = '';
+let pendingNavTimer = 0;
+let pendingAccountFocus = '';
 let authMode = 'signin';
 let authState = {
   configured: false,
@@ -705,19 +707,23 @@ function renderScenarioAccessState() {
   if (banner) banner.hidden = !authState.authenticated;
   if (bannerTitle) {
     bannerTitle.textContent = access.planCode === 'free'
-      ? 'Free account: 3 scenarios and 3 sessions each month.'
+      ? 'Free account: 3 scenarios and 3 live sessions each month.'
       : access.planCode === 'exotic'
         ? 'Exotic account: every Cue feature unlocked.'
-        : 'Pro account: full scenario library with debriefs and unlimited sessions.';
+        : 'Pro account: full scenario library with debriefs and unlimited live access.';
   }
   if (bannerSub) {
     if (access.planCode === 'free') {
-      const sessionsLeft = access.sessionsRemaining ?? 0;
-      bannerSub.textContent = `${sessionsLeft} session${sessionsLeft === 1 ? '' : 's'} left this month. Save your key once, then upgrade for the full library and unlimited usage.`;
+      if (access.activeLiveSession?.expiresAt) {
+        bannerSub.textContent = `A live window is active until ${formatDateTimeShort(access.activeLiveSession.expiresAt)}. Reopening Live before then does not use another session.`;
+      } else {
+        const sessionsLeft = access.sessionsRemaining ?? 0;
+        bannerSub.textContent = `${sessionsLeft} live session${sessionsLeft === 1 ? '' : 's'} left this month. Practice mode stays unlimited.`;
+      }
     } else if (access.planCode === 'exotic') {
       bannerSub.textContent = 'AI brief builder, custom scenarios, and win/loss analysis are live on this account.';
     } else {
-      bannerSub.textContent = 'Full standard library, debriefs, and unlimited sessions are active. Upgrade to Exotic for custom scenarios and strategy brief automation.';
+      bannerSub.textContent = 'Full standard library, debriefs, and unlimited live access are active. Upgrade to Exotic for custom scenarios and strategy brief automation.';
     }
   }
   if (bannerBtn) {
@@ -750,6 +756,7 @@ function buildSessionSnapshot() {
     currentNegotiationStyle,
     negotiationDraft: cloneJsonSafe(negotiationDraft, null),
     generatedOpener,
+    activeRunId,
     practiceDifficulty,
     practiceHistory: cloneJsonSafe(practiceHistory, []),
     practiceTranscript: cloneJsonSafe(practiceTranscript, []),
@@ -903,13 +910,17 @@ function showModal({ title, body, confirmText = 'Confirm', danger = false }) {
     const btn = document.getElementById('modalConfirm');
     btn.textContent = confirmText;
     btn.className = 'btn-confirm' + (danger ? ' btn-danger' : '');
-    btn.onclick = () => { closeModal(); resolve(true); };
+    btn.onclick = () => closeModal(true);
     document.getElementById('modalOverlay').classList.add('show');
   });
 }
-function closeModal() {
+function closeModal(confirmed = false) {
   document.getElementById('modalOverlay').classList.remove('show');
-  if (_modalResolve) { _modalResolve(false); _modalResolve = null; }
+  if (_modalResolve) {
+    const resolve = _modalResolve;
+    _modalResolve = null;
+    resolve(!!confirmed);
+  }
 }
 document.getElementById('modalOverlay').addEventListener('click', e => {
   if (e.target === document.getElementById('modalOverlay')) closeModal();
@@ -985,7 +996,8 @@ function getAccessState() {
     },
     canStartSession: true,
     requiresSavedKey: true,
-    hasSavedKey: false
+    hasSavedKey: false,
+    activeLiveSession: null
   };
 }
 
@@ -995,7 +1007,7 @@ function hasAppAccessCredential() {
 }
 
 function getSignedInDefaultScreen() {
-  return hasAppAccessCredential() ? 's-home' : 's-key';
+  return 's-home';
 }
 
 function getDefaultEntryScreen() {
@@ -1039,6 +1051,18 @@ function formatBillingPeriodEnd(value) {
     month: 'short',
     day: 'numeric',
     year: 'numeric'
+  });
+}
+
+function formatDateTimeShort(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
   });
 }
 
@@ -1167,6 +1191,8 @@ function renderAuthState() {
   const settingsLabel = document.getElementById('authSettingsLabel');
   const profileInput = document.getElementById('accountDisplayNameInput');
   const keyState = document.getElementById('accountKeyState');
+  const keySupportNote = document.getElementById('accountKeySupportNote');
+  const keyContinueBtn = document.getElementById('accountKeyContinueBtn');
   const keyDeleteBtn = document.getElementById('accountKeyDeleteBtn');
   const billing = getBillingState();
   const access = getAccessState();
@@ -1221,7 +1247,7 @@ function renderAuthState() {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
       summaryMeta.textContent = `${billing.planName} plan ${formatBillingStatusLabel(billing.planStatus).toLowerCase()}${renewal ? ` through ${renewal}` : ''}. ${access.features.hostedKeyAvailable ? 'Hosted key usage is available.' : 'BYOK still works here too.'}`;
     } else if (authState.user?.emailConfirmedAt) {
-      summaryMeta.textContent = `Email verified. Free plan active. ${access.sessionsRemaining ?? 0} session${access.sessionsRemaining === 1 ? '' : 's'} left this month.`;
+      summaryMeta.textContent = `Email verified. Free plan active. ${access.sessionsRemaining ?? 0} live session${access.sessionsRemaining === 1 ? '' : 's'} left this month.`;
     } else {
       summaryMeta.textContent = 'Email not verified yet. Check your inbox, then sign in again once confirmed.';
     }
@@ -1242,7 +1268,7 @@ function renderAuthState() {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
       overviewPlanSub.textContent = `${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}. Manage it from the Plans tab whenever you need to change or cancel.`;
     } else {
-      overviewPlanSub.textContent = 'Free keeps Cue narrow on purpose: BYOK, 3 sessions per month, and the first 3 scenarios.';
+      overviewPlanSub.textContent = 'Free keeps Cue narrow on purpose: BYOK, 3 live sessions per month, and the first 3 scenarios.';
     }
   }
   if (overviewUsage) {
@@ -1251,9 +1277,13 @@ function renderAuthState() {
       : `${access.sessionsRemaining ?? 0} left`;
   }
   if (overviewUsageSub) {
-    overviewUsageSub.textContent = access.sessionLimit === null
-      ? `${access.planLabel} includes unlimited sessions this month.`
-      : `${access.sessionsUsedThisMonth || 0} of ${access.sessionLimit} monthly sessions used.`;
+    if (access.sessionLimit === null) {
+      overviewUsageSub.textContent = `${access.planLabel} includes unlimited live sessions. Practice mode stays unlimited too.`;
+    } else if (access.activeLiveSession?.expiresAt) {
+      overviewUsageSub.textContent = `An active live window is open until ${formatDateTimeShort(access.activeLiveSession.expiresAt)}. Reopening Live before then does not use another session.`;
+    } else {
+      overviewUsageSub.textContent = `${access.sessionsUsedThisMonth || 0} of ${access.sessionLimit} monthly live sessions used. Practice mode is unlimited.`;
+    }
   }
   if (keyState) {
     keyState.textContent = accountHasSavedOpenAIKey()
@@ -1261,6 +1291,15 @@ function renderAuthState() {
       : access.features.hostedKeyAvailable
         ? 'No personal BYOK saved. This plan can use Gibsel hosted OpenAI usage.'
         : 'No saved OpenAI key on this account yet.';
+  }
+  if (keySupportNote) {
+    keySupportNote.textContent = access.features.hostedKeyAvailable
+      ? 'Hosted access is live on this account. Save your own key only if you want to use private BYOK instead.'
+      : 'Save your own key for private BYOK access. Free live usage is counted in 2-hour windows. Practice mode stays unlimited.';
+  }
+  if (keyContinueBtn) {
+    keyContinueBtn.style.display = authState.authenticated && (accountHasSavedOpenAIKey() || access.features.hostedKeyAvailable) ? 'block' : 'none';
+    keyContinueBtn.textContent = accountHasSavedOpenAIKey() ? 'Continue to Cue' : 'Use Hosted Access';
   }
   if (keyDeleteBtn) keyDeleteBtn.style.display = accountHasSavedOpenAIKey() ? 'block' : 'none';
   syncSavedKeyUI();
@@ -1274,9 +1313,33 @@ function setAuthMode(mode) {
   renderAuthState();
 }
 
-function openAccountScreen() {
+function queueAccountFocus(target = '') {
+  pendingAccountFocus = String(target || '').trim();
+}
+
+function applyPendingAccountFocus() {
+  if (!pendingAccountFocus) return;
+  const target = pendingAccountFocus === 'key'
+    ? document.getElementById('accountKeyCard')
+    : pendingAccountFocus === 'plans'
+      ? document.getElementById('authOverviewPlan')
+      : null;
+  pendingAccountFocus = '';
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.add('focus-ring');
+  setTimeout(() => target.classList.remove('focus-ring'), 1400);
+}
+
+function goBackFromAccount() {
+  go(authState.authenticated ? 's-home' : 's-launch');
+}
+
+function openAccountScreen(options = {}) {
+  if (options.focusKey) queueAccountFocus('key');
   renderAuthState();
   go('s-auth');
+  setTimeout(applyPendingAccountFocus, 90);
   if (!authState.checked) refreshAuthState({ silent: true });
 }
 
@@ -1313,7 +1376,7 @@ function renderPlansState() {
     heroCopy.textContent = authState.authenticated
       ? billing.isPaid
         ? 'Billing, renewals, and future plan changes stay tied to this identity without changing how the rest of Cue works.'
-        : 'Free keeps Cue intentionally narrow: saved BYOK, 3 sessions per month, and the first 3 scenarios.'
+        : 'Free keeps Cue intentionally narrow: saved BYOK, 3 live sessions per month, and the first 3 scenarios.'
       : 'Sign in first, then subscribe from the same account you will use inside Cue.';
   }
   if (heroStatus) {
@@ -1322,8 +1385,10 @@ function renderPlansState() {
     } else if (billing.isPaid) {
       const renewal = formatBillingPeriodEnd(billing.currentPeriodEnd);
       heroStatus.textContent = `${billing.planName} • ${formatBillingStatusLabel(billing.planStatus)}${renewal ? ` through ${renewal}` : ''}`;
+    } else if (access.activeLiveSession?.expiresAt) {
+      heroStatus.textContent = `Free live window active until ${formatDateTimeShort(access.activeLiveSession.expiresAt)}.`;
     } else {
-      heroStatus.textContent = `${access.sessionsRemaining ?? 0} free session${access.sessionsRemaining === 1 ? '' : 's'} left this month.`;
+      heroStatus.textContent = `${access.sessionsRemaining ?? 0} free live session${access.sessionsRemaining === 1 ? '' : 's'} left this month.`;
     }
   }
   if (noteCopy) {
@@ -1337,7 +1402,7 @@ function renderPlansState() {
     freeStatus.textContent = authState.authenticated
       ? access.sessionLimit === null
         ? 'This account is currently on a paid plan.'
-        : `${access.sessionsUsedThisMonth || 0} of ${access.sessionLimit} monthly sessions used.`
+        : `${access.sessionsUsedThisMonth || 0} of ${access.sessionLimit} monthly live sessions used.`
       : 'Every account starts here unless a paid plan is attached.';
   }
   if (freeButton) {
@@ -1518,9 +1583,21 @@ async function startTrackedSession(mode) {
     openAccountScreen();
     throw new Error('Sign in first.');
   }
-  if (!canStartAnySession()) {
+  if (mode === 'live' && !canStartAnySession()) {
     openPlansScreen();
-    throw new Error(`Free includes ${getAccessState().sessionLimit} sessions per month. Upgrade to Pro for unlimited sessions.`);
+    throw new Error(`Free includes ${getAccessState().sessionLimit} live sessions per month. Upgrade to Pro for unlimited live access.`);
+  }
+  if (mode === 'live' && getAccessState().planCode === 'free' && !getAccessState().activeLiveSession) {
+    const limit = getAccessState().sessionLimit || 3;
+    const remaining = getAccessState().sessionsRemaining ?? limit;
+    const confirmed = await showModal({
+      title: 'Use 1 live session?',
+      body: `Free live mode uses one session window when you open it. That window lasts 2 hours, and you can reopen Live as many times as you want during those 2 hours without using another one.\n\nYou have ${remaining} of ${limit} live sessions left this month.`,
+      confirmText: 'Start Live'
+    });
+    if (!confirmed) {
+      throw new Error('Live session canceled.');
+    }
   }
   if (activeRunId) {
     await completeTrackedSession(null);
@@ -1538,6 +1615,10 @@ async function startTrackedSession(mode) {
     authState.account = data.account;
     renderAuthState();
     renderPlansState();
+  }
+  persistSessionState();
+  if (mode === 'live' && data?.liveSessionAction === 'reused') {
+    toast('Rejoined your current 2-hour live session window');
   }
   return activeRunId;
 }
@@ -1559,6 +1640,7 @@ async function completeTrackedSession(review = null) {
   } catch (_) {
   } finally {
     activeRunId = '';
+    persistSessionState();
   }
 }
 
@@ -1606,11 +1688,6 @@ async function refreshAuthState({ silent = false } = {}) {
   renderPlansState();
   if (!isRestoringSession && authState.authenticated && getActiveScreenId() === 's-launch') {
     go(getSignedInDefaultScreen(), { replaceHash: true });
-  } else if (!isRestoringSession && authState.authenticated && !hasAppAccessCredential()) {
-    const active = getActiveScreenId();
-    if (!['s-auth', 's-plans', 's-key'].includes(active)) {
-      go('s-key', { replaceHash: true });
-    }
   }
 }
 
@@ -1751,7 +1828,14 @@ async function deleteAccountApiKey() {
 // ─────────────────────────────────────────────────────────────────────────────
 function go(id, options = {}) {
   const { replaceHash = false, updateHash = true } = options;
+  if (pendingNavTimer) {
+    clearTimeout(pendingNavTimer);
+    pendingNavTimer = 0;
+  }
   const cur = document.querySelector('.screen.active');
+  if (cur?.id && ['s-practice', 's-practice-voice', 's-live'].includes(cur.id) && id !== cur.id && id !== 's-practice-review') {
+    completeTrackedSession(null);
+  }
   if (cur?.id === 's-practice' && id !== 's-practice') {
     resetPracticeRequestState();
   }
@@ -1763,10 +1847,11 @@ function go(id, options = {}) {
     cur.classList.add('leaving'); cur.classList.remove('active');
     setTimeout(() => cur.classList.remove('leaving'), 280);
   }
-  setTimeout(() => {
+  pendingNavTimer = window.setTimeout(() => {
     document.getElementById(id).classList.add('active');
     if (updateHash) updateRouteHash(id, replaceHash);
     persistSessionState();
+    pendingNavTimer = 0;
   }, 55);
 }
 
@@ -1775,13 +1860,9 @@ function go(id, options = {}) {
 // ─────────────────────────────────────────────────────────────────────────────
 function changeKey() {
   SecureStore.clear();
-  // reset key screen state
-  document.getElementById('apiKeyInput').value = '';
-  document.getElementById('keyVerifyStatus').textContent = '';
-  document.getElementById('keyVerifyStatus').className = 'key-verify-status';
-  document.getElementById('continueBtn').disabled = false;
-  document.getElementById('continueBtn').textContent = 'Save Key & Continue';
-  go(authState.authenticated ? 's-key' : 's-auth');
+  const keyInput = document.getElementById('accountOpenAIKeyInput');
+  if (keyInput) keyInput.value = '';
+  openAccountScreen({ focusKey: true });
 }
 
 function updateModelSelect(provider) {
@@ -1979,7 +2060,7 @@ function promptSavedKeySetup() {
     return;
   }
   toast(featureEnabled('hostedKeyAvailable') ? 'Hosted key is ready on this plan' : 'Save your OpenAI key first');
-  go('s-key');
+  openAccountScreen({ focusKey: true });
 }
 
 function goPrep() {
@@ -2254,6 +2335,9 @@ async function analyzePracticeSession(mode = 'text') {
     planLabel: 'Pro',
     body: 'Session debriefs and saved review history start on Pro.'
   })) {
+    await completeTrackedSession(null);
+    if (mode === 'voice') go('s-practice');
+    if (mode === 'live') go('s-home');
     return;
   }
   const entries = getPracticeSessionTranscript(mode);
@@ -2756,6 +2840,7 @@ function endVoicePractice() {
   stopMic();
   const transcript = getPracticeSessionTranscript('voice');
   if (transcript.length < 2) {
+    completeTrackedSession(null);
     go('s-practice');
     toast('Voice practice ended');
     return;
@@ -3594,6 +3679,7 @@ async function goLive() {
   try {
     await startTrackedSession('live');
   } catch (error) {
+    if (error.message === 'Live session canceled.') return;
     setS('idle', error.message || 'Could not start session.');
     toast(error.message || 'Could not start session');
     return;
@@ -3647,6 +3733,7 @@ function confirmEnd(btn) {
       earOn = true;
       const transcript = getPracticeSessionTranscript('live');
       if (transcript.length < 2) {
+        completeTrackedSession(null);
         setTimeout(() => go('s-home'), 50);
         toast('Live session ended');
         return;
@@ -4359,11 +4446,9 @@ function renderChatState() {
 function getRestoredScreenId(snapshot) {
   const requested = getScreenForRoute() || snapshot?.activeScreen || getDefaultEntryScreen();
   if (requested === 's-plans') return 's-plans';
+  if (requested === 's-key') return authState.authenticated ? 's-auth' : 's-launch';
   if (authState.authenticated && requested === 's-launch') {
     return getSignedInDefaultScreen();
-  }
-  if (authState.authenticated && !hasAppAccessCredential()) {
-    return ['s-key', 's-auth', 's-plans'].includes(requested) ? requested : 's-key';
   }
   if (!authState.authenticated) {
     return ['s-launch', 's-auth', 's-plans'].includes(requested) ? requested : 's-launch';
@@ -4377,7 +4462,8 @@ function getRestoredScreenId(snapshot) {
 function restoreScreenFromSession(screenId) {
   switch (screenId) {
     case 's-key':
-      go('s-key', { replaceHash: true });
+      renderAuthState();
+      go('s-auth', { replaceHash: true });
       return;
     case 's-auth':
       renderAuthState();
@@ -4431,8 +4517,14 @@ function restoreScreenFromSession(screenId) {
 function restoreSessionState() {
   const snapshot = loadSessionSnapshot();
   if (!snapshot) {
+    activeRunId = '';
     const requested = getScreenForRoute();
     if ((authState.authenticated && requested === 's-key') || requested === 's-auth' || requested === 's-plans') {
+      if (requested === 's-key') {
+        renderAuthState();
+        go('s-auth', { replaceHash: true });
+        return;
+      }
       if (requested === 's-auth') renderAuthState();
       if (requested === 's-plans') renderPlansState();
       go(requested, { replaceHash: true });
@@ -4447,6 +4539,7 @@ function restoreSessionState() {
   try {
     if (snapshot.apiKey) SecureStore.set(String(snapshot.apiKey));
     else SecureStore.clear();
+    activeRunId = String(snapshot.activeRunId || '').trim();
     currentProvider = PROVIDERS[snapshot.currentProvider] ? snapshot.currentProvider : 'openai';
     currentModel = String(snapshot.currentModel || currentModel);
     applyProviderSelection(currentProvider, currentModel);
@@ -4487,16 +4580,17 @@ window.addEventListener('hashchange', () => {
   if (isRestoringSession) return;
   const target = getScreenForRoute();
   if (!target || target === getActiveScreenId()) return;
+  if (target === 's-key') {
+    renderAuthState();
+    go(authState.authenticated ? 's-auth' : 's-launch', { replaceHash: true });
+    return;
+  }
   if (authState.authenticated && target === 's-launch') {
     go(getSignedInDefaultScreen(), { replaceHash: true });
     return;
   }
   if (target === 's-plans') {
     restoreScreenFromSession(target);
-    return;
-  }
-  if (authState.authenticated && !hasAppAccessCredential()) {
-    go(['s-key', 's-auth', 's-plans'].includes(target) ? target : 's-key', { replaceHash: true });
     return;
   }
   if (!authState.authenticated) {
