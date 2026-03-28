@@ -105,6 +105,21 @@
           <strong>Memory-only in this browser.</strong> Prep and chat go direct to your provider. OpenAI live sessions are proxied through Gibsel Cue to establish realtime.
         </div>
       </div>
+      <div class="remember-key-row" id="rememberKeyWrap" hidden>
+        <label class="remember-key-check" for="rememberKeyToggle">
+          <input id="rememberKeyToggle" type="checkbox"/>
+          <span>Save this OpenAI key to my account for future logins</span>
+        </label>
+        <div class="key-note" style="margin:8px 0 0;">Stored encrypted on the server. The raw key is never shown again after save.</div>
+      </div>
+      <div class="account-key-card" id="savedAccountKeyCard" hidden>
+        <div class="auth-summary-label">Saved Account Key</div>
+        <div class="account-key-status" id="savedAccountKeyStatus">An OpenAI key is already saved on this account.</div>
+        <div class="account-key-actions">
+          <button class="btn ghost" id="savedAccountKeyContinueBtn" onclick="continueWithSavedAccountKey()">Continue with Saved Account Key</button>
+          <button class="btn ghost" type="button" onclick="openAccountScreen()">Manage in Account</button>
+        </div>
+      </div>
       <p class="key-note" id="keyNote">Prep and chat go direct to api.openai.com. OpenAI live mode is proxied through Gibsel Cue to establish Realtime.</p>
     </div>
     <div>
@@ -160,6 +175,27 @@
           </div>
         </div>
       </div>
+      <div class="auth-settings-grid" id="authSettingsGrid" style="display:none;">
+        <div class="auth-settings-card">
+          <div class="auth-summary-label">Profile</div>
+          <div class="field-label">Display Name</div>
+          <input class="field-input" id="accountDisplayNameInput" type="text" placeholder="Your name" autocomplete="name" spellcheck="false"/>
+          <button class="btn ghost" id="accountProfileSaveBtn" style="margin-top:14px;" onclick="saveAccountProfile()">Save Profile</button>
+        </div>
+        <div class="auth-settings-card">
+          <div class="auth-summary-label">Saved OpenAI Key</div>
+          <div class="auth-summary-meta" id="accountKeyState">No saved OpenAI key on this account yet.</div>
+          <div class="field-label" style="margin-top:18px;">OpenAI API Key</div>
+          <input class="field-input" id="accountOpenAIKeyInput" type="password" placeholder="Paste a key to save it securely" autocomplete="off" spellcheck="false"/>
+          <div class="security-badge" style="margin-top:14px; margin-bottom:0;">
+            <div class="security-badge-text">
+              <strong>Encrypted at rest.</strong> Cue stores saved personal keys as server-side ciphertext and never returns the raw key to the browser after save.
+            </div>
+          </div>
+          <button class="btn" id="accountKeySaveBtn" style="margin-top:14px;" onclick="saveAccountApiKey()">Save Key</button>
+          <button class="btn ghost" id="accountKeyDeleteBtn" style="display:none; margin-top:10px;" onclick="deleteAccountApiKey()">Delete Saved Key</button>
+        </div>
+      </div>
     </div>
     <div class="auth-actions">
       <button class="btn" id="authPrimaryBtn" onclick="submitAuth()">Create Account</button>
@@ -167,6 +203,7 @@
       <button class="btn ghost" id="authContinueBtn" style="display:none;" onclick="continueFromAccount()">Continue to Cue</button>
       <button class="btn ghost" id="authSignoutBtn" style="display:none;" onclick="signOutAccount()">Sign Out</button>
       <div class="key-verify-status" id="authStatus"></div>
+      <div class="key-verify-status" id="accountSettingsStatus"></div>
     </div>
   </div>
 </div>

@@ -204,10 +204,16 @@ async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
   const rl = RateLimit.check();
   if (!rl.ok) throw new Error(rl.reason);
   const key = SecureStore.get();
-  if (!key) throw new Error('No API key — reload and enter your key.');
   const p = PROVIDERS[currentProvider];
   if (!p) throw new Error('Unknown provider.');
   if (!p.supported) throw new Error(`${p.name} support is coming soon. Use OpenAI for now.`);
+  if (!key) {
+    if (currentProvider === 'openai' && accountHasSavedOpenAIKey()) {
+      RateLimit.record();
+      return proxySavedOpenAIChat(messages, maxTokens, jsonMode);
+    }
+    throw new Error('No API key — reload and enter your key.');
+  }
   let systemContent = null, userMessages = messages;
   if (messages.length && messages[0].role === 'system') {
     systemContent = messages[0].content;
@@ -234,6 +240,33 @@ async function secureAPICall(messages, maxTokens = 200, jsonMode = false) {
   }
   const data = await res.json();
   const content = p.extractContent(data);
+  if (!content) throw new Error('Empty response from API.');
+  return content;
+}
+
+async function proxySavedOpenAIChat(messages, maxTokens = 200, jsonMode = false) {
+  let res;
+  try {
+    res = await fetch('/api/openai/chat', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages,
+        maxTokens,
+        jsonMode,
+        model: currentModel
+      })
+    });
+  } catch (_) {
+    throw new Error('Network error — check your connection.');
+  }
+  let data = {};
+  try {
+    data = await res.json();
+  } catch (_) {}
+  if (!res.ok) throw new Error(data?.error || 'Could not use the saved account key.');
+  const content = String(data?.content || '').trim();
   if (!content) throw new Error('Empty response from API.');
   return content;
 }
@@ -525,7 +558,8 @@ let authState = {
   configured: false,
   checked: false,
   authenticated: false,
-  user: null
+  user: null,
+  account: null
 };
 
 const REALTIME_MODELS = {
@@ -809,11 +843,52 @@ function setAuthStatus(message = '', kind = '') {
   el.className = 'key-verify-status' + (kind ? ` ${kind}` : '');
 }
 
+function setAccountSettingsStatus(message = '', kind = '') {
+  const el = document.getElementById('accountSettingsStatus');
+  if (!el) return;
+  el.textContent = message;
+  el.className = 'key-verify-status' + (kind ? ` ${kind}` : '');
+}
+
+function accountHasSavedOpenAIKey() {
+  return authState.authenticated && authState.account?.savedKey?.provider === 'openai';
+}
+
+function hasAppAccessCredential() {
+  return SecureStore.has() || accountHasSavedOpenAIKey();
+}
+
 function getAuthDisplayCopy() {
-  const displayName = String(authState.user?.displayName || '').trim();
+  const displayName = String(authState.account?.displayName || authState.user?.displayName || '').trim();
   if (displayName) return displayName;
-  const email = String(authState.user?.email || '').trim();
+  const email = String(authState.account?.email || authState.user?.email || '').trim();
   return email ? email.split('@')[0].slice(0, 14) : 'Account';
+}
+
+function formatSavedKeyTimestamp(value) {
+  if (!value) return 'Saved on your account.';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Saved on your account.';
+  return `Saved ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}.`;
+}
+
+function syncSavedKeyUI() {
+  const rememberWrap = document.getElementById('rememberKeyWrap');
+  const rememberToggle = document.getElementById('rememberKeyToggle');
+  const savedCard = document.getElementById('savedAccountKeyCard');
+  const savedStatus = document.getElementById('savedAccountKeyStatus');
+  const continueBtn = document.getElementById('savedAccountKeyContinueBtn');
+  const canRemember = authState.authenticated && currentProvider === 'openai' && isProviderSupported(currentProvider);
+  const canUseSavedOnScreen = canRemember && accountHasSavedOpenAIKey();
+
+  if (rememberWrap) rememberWrap.hidden = !canRemember;
+  if (!canRemember && rememberToggle) rememberToggle.checked = false;
+
+  if (savedCard) savedCard.hidden = !canUseSavedOnScreen;
+  if (savedStatus && canUseSavedOnScreen) {
+    savedStatus.textContent = `Saved OpenAI key ending in ${authState.account.savedKey.last4}. ${formatSavedKeyTimestamp(authState.account.savedKey.updatedAt)}`;
+  }
+  if (continueBtn) continueBtn.style.display = canUseSavedOnScreen ? 'block' : 'none';
 }
 
 function renderAuthState() {
@@ -830,6 +905,10 @@ function renderAuthState() {
   const subcopy = document.getElementById('authSubcopy');
   const tabSignin = document.getElementById('authTabSignin');
   const tabSignup = document.getElementById('authTabSignup');
+  const settingsGrid = document.getElementById('authSettingsGrid');
+  const profileInput = document.getElementById('accountDisplayNameInput');
+  const keyState = document.getElementById('accountKeyState');
+  const keyDeleteBtn = document.getElementById('accountKeyDeleteBtn');
   const accountButtons = [
     document.getElementById('accountHomeBtn')
   ].filter(Boolean);
@@ -843,11 +922,12 @@ function renderAuthState() {
 
   if (signedOut) signedOut.style.display = authState.authenticated ? 'none' : 'block';
   if (signedIn) signedIn.style.display = authState.authenticated ? 'block' : 'none';
+  if (settingsGrid) settingsGrid.style.display = authState.authenticated ? 'grid' : 'none';
   if (nameRow) nameRow.style.display = authState.authenticated || authMode !== 'signup' ? 'none' : 'block';
 
   if (subcopy) {
     subcopy.textContent = authState.authenticated
-      ? 'Your Cue identity is active. Billing plans and saved API keys will attach here next.'
+      ? 'Your Cue identity is active. Private keys can live here securely and follow you across logins.'
       : 'Secure sign-in for Cue. Billing and saved API keys will live here.';
   }
   if (note) {
@@ -867,7 +947,7 @@ function renderAuthState() {
   if (continueBtn) continueBtn.style.display = authState.authenticated ? 'block' : 'none';
   if (signoutBtn) signoutBtn.style.display = authState.authenticated ? 'block' : 'none';
 
-  if (summaryEmail) summaryEmail.textContent = authState.user?.email || '—';
+  if (summaryEmail) summaryEmail.textContent = authState.account?.email || authState.user?.email || '—';
   if (summaryMeta) {
     if (!authState.authenticated) {
       summaryMeta.textContent = 'Checking account status...';
@@ -877,6 +957,14 @@ function renderAuthState() {
       summaryMeta.textContent = 'Email not verified yet. Check your inbox, then sign in again once confirmed.';
     }
   }
+  if (profileInput) profileInput.value = authState.account?.displayName || '';
+  if (keyState) {
+    keyState.textContent = accountHasSavedOpenAIKey()
+      ? `OpenAI key ending in ${authState.account.savedKey.last4}. ${formatSavedKeyTimestamp(authState.account.savedKey.updatedAt)}`
+      : 'No saved OpenAI key on this account yet.';
+  }
+  if (keyDeleteBtn) keyDeleteBtn.style.display = accountHasSavedOpenAIKey() ? 'block' : 'none';
+  syncSavedKeyUI();
 }
 
 function setAuthMode(mode) {
@@ -892,7 +980,13 @@ function openAccountScreen() {
 }
 
 function continueFromAccount() {
-  go(SecureStore.has() ? 's-home' : 's-key');
+  go(hasAppAccessCredential() ? 's-home' : 's-key');
+}
+
+function continueWithSavedAccountKey() {
+  if (!accountHasSavedOpenAIKey()) return;
+  applyProviderSelection('openai', currentModel);
+  go('s-home');
 }
 
 function handleAuthSecondary() {
@@ -929,7 +1023,8 @@ async function refreshAuthState({ silent = false } = {}) {
       configured: !!data?.configured,
       checked: true,
       authenticated: !!data?.authenticated,
-      user: data?.user || null
+      user: data?.user || null,
+      account: data?.account || null
     };
     if (!silent) setAuthStatus(authState.authenticated ? 'Session active' : '', authState.authenticated ? 'ok' : '');
   } catch (_) {
@@ -937,7 +1032,8 @@ async function refreshAuthState({ silent = false } = {}) {
       configured: false,
       checked: true,
       authenticated: false,
-      user: null
+      user: null,
+      account: null
     };
     if (!silent) setAuthStatus('Could not reach account service.', 'fail');
   }
@@ -985,12 +1081,85 @@ async function signOutAccount() {
       configured: authState.configured,
       checked: true,
       authenticated: false,
-      user: null
+      user: null,
+      account: null
     };
     renderAuthState();
     setAuthStatus('Signed out', 'ok');
+    setAccountSettingsStatus('', '');
   } catch (error) {
     setAuthStatus(error.message || 'Could not sign out.', 'fail');
+  }
+}
+
+async function saveAccountProfile() {
+  const displayName = (document.getElementById('accountDisplayNameInput')?.value || '').trim();
+  if (!authState.authenticated) {
+    setAccountSettingsStatus('Sign in first.', 'fail');
+    return;
+  }
+  const btn = document.getElementById('accountProfileSaveBtn');
+  if (btn) btn.disabled = true;
+  setAccountSettingsStatus('Saving profile…', 'spin');
+  try {
+    await authRequest('/api/account/profile', {
+      body: { displayName }
+    });
+    await refreshAuthState({ silent: true });
+    setAccountSettingsStatus('Profile saved.', 'ok');
+  } catch (error) {
+    setAccountSettingsStatus(error.message || 'Could not save profile.', 'fail');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function saveAccountApiKey(rawKey = null, options = {}) {
+  const apiKey = String(rawKey || document.getElementById('accountOpenAIKeyInput')?.value || '').trim();
+  if (!authState.authenticated) {
+    setAccountSettingsStatus('Sign in first.', 'fail');
+    return false;
+  }
+  if (!apiKey) {
+    setAccountSettingsStatus('Paste an OpenAI API key first.', 'fail');
+    return false;
+  }
+  const btn = document.getElementById('accountKeySaveBtn');
+  if (btn) btn.disabled = true;
+  if (!options.quiet) setAccountSettingsStatus('Saving and verifying key…', 'spin');
+  try {
+    await authRequest('/api/account/api-key', {
+      body: { apiKey }
+    });
+    const keyInput = document.getElementById('accountOpenAIKeyInput');
+    if (keyInput) keyInput.value = '';
+    await refreshAuthState({ silent: true });
+    if (!options.quiet) setAccountSettingsStatus('Saved key encrypted on your account.', 'ok');
+    return true;
+  } catch (error) {
+    if (!options.quiet) setAccountSettingsStatus(error.message || 'Could not save the key.', 'fail');
+    return false;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function deleteAccountApiKey() {
+  if (!authState.authenticated || !accountHasSavedOpenAIKey()) {
+    setAccountSettingsStatus('No saved key to delete.', 'fail');
+    return;
+  }
+  const btn = document.getElementById('accountKeyDeleteBtn');
+  if (btn) btn.disabled = true;
+  setAccountSettingsStatus('Deleting saved key…', 'spin');
+  try {
+    await authRequest('/api/account/api-key/delete', { body: {} });
+    await refreshAuthState({ silent: true });
+    setAccountSettingsStatus('Saved key deleted.', 'ok');
+  } catch (error) {
+    setAccountSettingsStatus(error.message || 'Could not delete the saved key.', 'fail');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1081,6 +1250,7 @@ function applyProviderSelection(provider, preferredModel = '') {
   const modelSelect = document.getElementById('modelSelect');
   if (modelSelect) modelSelect.value = selectedModel;
   syncProviderAccessState(nextProvider);
+  syncSavedKeyUI();
   if (typeof updateChatFootnote === 'function') updateChatFootnote();
   if (typeof updatePracticeFootnote === 'function') updatePracticeFootnote();
   if (typeof updateVoicePracticeFootnote === 'function') updateVoicePracticeFootnote();
@@ -1157,6 +1327,7 @@ async function submitKey() {
   const status = document.getElementById('keyVerifyStatus');
   const btn = document.getElementById('continueBtn');
   const p = PROVIDERS[currentProvider];
+  const rememberToggle = document.getElementById('rememberKeyToggle');
   if (!isProviderSupported(currentProvider)) {
     status.textContent = `${p?.name || 'This provider'} support is coming soon. Use OpenAI for now.`;
     status.className = 'key-verify-status spin';
@@ -1177,6 +1348,12 @@ async function submitKey() {
     await verifyKey(raw, currentProvider);
     status.textContent = '✓ Verified'; status.className = 'key-verify-status ok';
     SecureStore.set(raw);
+    if (currentProvider === 'openai' && authState.authenticated && rememberToggle?.checked) {
+      const saved = await saveAccountApiKey(raw, { quiet: true });
+      if (saved) status.textContent = '✓ Verified and saved to your account';
+      else status.textContent = '✓ Verified. Session is active, but account save failed.';
+      if (rememberToggle) rememberToggle.checked = false;
+    }
     if (currentProvider === 'azure') {
       document.getElementById('azureEndpoint').value = '';
       document.getElementById('azureKey').value = '';
@@ -3480,8 +3657,8 @@ function renderChatState() {
 }
 
 function getRestoredScreenId(snapshot) {
-  const requested = getScreenForRoute() || snapshot?.activeScreen || (SecureStore.has() ? 's-home' : 's-launch');
-  if (!SecureStore.has()) {
+  const requested = getScreenForRoute() || snapshot?.activeScreen || (hasAppAccessCredential() ? 's-home' : 's-launch');
+  if (!hasAppAccessCredential()) {
     return ['s-key', 's-auth'].includes(requested) ? requested : 's-launch';
   }
   if (!currentSC && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(requested)) {
@@ -3549,7 +3726,8 @@ function restoreSessionState() {
       go(requested, { replaceHash: true });
       return;
     }
-    updateRouteHash(getActiveScreenId(), true);
+    const target = hasAppAccessCredential() ? 's-home' : getActiveScreenId();
+    go(target, { replaceHash: true });
     return;
   }
 
@@ -3596,7 +3774,7 @@ window.addEventListener('hashchange', () => {
   if (isRestoringSession) return;
   const target = getScreenForRoute();
   if (!target || target === getActiveScreenId()) return;
-  if (!SecureStore.has()) {
+  if (!hasAppAccessCredential()) {
     go(['s-key', 's-auth'].includes(target) ? target : 's-launch', { replaceHash: true });
     return;
   }
@@ -3637,6 +3815,8 @@ document.addEventListener('DOMContentLoaded', () => {});
   const email = document.getElementById('authEmail');
   const password = document.getElementById('authPassword');
   const displayName = document.getElementById('authDisplayName');
+  const accountDisplayName = document.getElementById('accountDisplayNameInput');
+  const accountOpenAIKey = document.getElementById('accountOpenAIKeyInput');
   if (displayName) {
     displayName.addEventListener('keydown', e => {
       if (e.key === 'Enter') email?.focus();
@@ -3652,12 +3832,26 @@ document.addEventListener('DOMContentLoaded', () => {});
       if (e.key === 'Enter') submitAuth();
     });
   }
+  if (accountDisplayName) {
+    accountDisplayName.addEventListener('keydown', e => {
+      if (e.key === 'Enter') saveAccountProfile();
+    });
+  }
+  if (accountOpenAIKey) {
+    accountOpenAIKey.addEventListener('keydown', e => {
+      if (e.key === 'Enter') saveAccountApiKey();
+    });
+  }
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLEANUP
 // ─────────────────────────────────────────────────────────────────────────────
-setAuthMode('signin');
-refreshAuthState({ silent: true });
-startSessionPersistence();
-restoreSessionState();
+async function bootstrapApp() {
+  setAuthMode('signin');
+  startSessionPersistence();
+  await refreshAuthState({ silent: true });
+  restoreSessionState();
+}
+
+bootstrapApp();

@@ -1,4 +1,5 @@
 const http = require('http');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -15,6 +16,7 @@ const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-tra
 const SUPABASE_URL = String(process.env.SUPABASE_URL || '').trim().replace(/\/+$/, '');
 const SUPABASE_ANON_KEY = String(process.env.SUPABASE_ANON_KEY || '').trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+const CUE_KEY_ENCRYPTION_SECRET = String(process.env.CUE_KEY_ENCRYPTION_SECRET || '').trim();
 const liveCallWindows = new Map();
 const ALLOWED_REALTIME_MODELS = new Set(['gpt-realtime', 'gpt-realtime-mini']);
 const ACCESS_COOKIE = 'cue_sb_at';
@@ -70,6 +72,10 @@ function sendJson(res, statusCode, payload, extraHeaders = {}) {
 
 function hasSupabaseAuth() {
   return !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+}
+
+function hasSupabaseAdmin() {
+  return !!(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 }
 
 function readBody(req) {
@@ -272,6 +278,255 @@ function validatePassword(password) {
   return typeof password === 'string' && password.length >= 8 && password.length <= 128;
 }
 
+function validateOpenAIKey(apiKey) {
+  return typeof apiKey === 'string' && apiKey.startsWith('sk-') && apiKey.length >= 20;
+}
+
+function getEncryptionKey() {
+  if (!CUE_KEY_ENCRYPTION_SECRET) return null;
+  return crypto.createHash('sha256').update(CUE_KEY_ENCRYPTION_SECRET).digest();
+}
+
+function encryptStoredSecret(plainText) {
+  const key = getEncryptionKey();
+  if (!key) throw new Error('Key encryption secret is not configured.');
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(String(plainText), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `v1.${iv.toString('base64url')}.${tag.toString('base64url')}.${encrypted.toString('base64url')}`;
+}
+
+function decryptStoredSecret(payload) {
+  const key = getEncryptionKey();
+  if (!key) throw new Error('Key encryption secret is not configured.');
+  const [version, ivEncoded, tagEncoded, encryptedEncoded] = String(payload || '').split('.');
+  if (version !== 'v1' || !ivEncoded || !tagEncoded || !encryptedEncoded) {
+    throw new Error('Stored secret format is invalid.');
+  }
+  const decipher = crypto.createDecipheriv(
+    'aes-256-gcm',
+    key,
+    Buffer.from(ivEncoded, 'base64url')
+  );
+  decipher.setAuthTag(Buffer.from(tagEncoded, 'base64url'));
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(encryptedEncoded, 'base64url')),
+    decipher.final()
+  ]);
+  return decrypted.toString('utf8');
+}
+
+function buildSupabaseRestPath(table, params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+    query.set(key, String(value));
+  });
+  return `/rest/v1/${table}${query.toString() ? `?${query}` : ''}`;
+}
+
+async function supabaseAdminFetch(pathname, options = {}) {
+  if (!hasSupabaseAdmin()) throw new Error('Supabase admin access is not configured.');
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  };
+  const response = await fetch(`${SUPABASE_URL}${pathname}`, {
+    method: options.method || 'GET',
+    headers,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch (_) {
+      data = { raw: text };
+    }
+  }
+  return { response, data };
+}
+
+async function getAuthenticatedRequestState(req) {
+  if (!hasSupabaseAuth()) return { user: null, setCookies: [] };
+  const cookies = parseCookies(req);
+  let accessToken = cookies[ACCESS_COOKIE] || '';
+  const refreshToken = cookies[REFRESH_COOKIE] || '';
+  let user = await fetchSupabaseUser(accessToken);
+  let setCookies = [];
+  if (!user && refreshToken) {
+    const refreshed = await refreshSupabaseSession(refreshToken);
+    if (refreshed?.access_token && refreshed?.refresh_token) {
+      accessToken = refreshed.access_token;
+      setCookies = setAuthCookies(req, refreshed);
+      user = await fetchSupabaseUser(accessToken);
+    }
+  }
+  return { user, setCookies };
+}
+
+async function fetchAccountStateForUser(user) {
+  const fallback = {
+    displayName: String(user?.displayName || '').trim(),
+    email: String(user?.email || '').trim(),
+    onboardingComplete: false,
+    savedKey: null
+  };
+  if (!user?.id || !hasSupabaseAdmin()) return fallback;
+
+  const profilePath = buildSupabaseRestPath('profiles', {
+    id: `eq.${user.id}`,
+    select: 'id,email,display_name,onboarding_complete',
+    limit: 1
+  });
+  const keyPath = buildSupabaseRestPath('user_api_keys', {
+    user_id: `eq.${user.id}`,
+    provider: 'eq.openai',
+    is_active: 'eq.true',
+    select: 'id,provider,key_last4,label,updated_at',
+    order: 'updated_at.desc',
+    limit: 1
+  });
+
+  const [{ data: profileData }, { data: keyData }] = await Promise.all([
+    supabaseAdminFetch(profilePath),
+    supabaseAdminFetch(keyPath)
+  ]);
+
+  const profile = Array.isArray(profileData) ? profileData[0] : null;
+  const savedKey = Array.isArray(keyData) && keyData[0]
+    ? {
+        id: keyData[0].id,
+        provider: keyData[0].provider,
+        last4: keyData[0].key_last4,
+        label: keyData[0].label || '',
+        updatedAt: keyData[0].updated_at || null
+      }
+    : null;
+
+  return {
+    displayName: String(profile?.display_name || fallback.displayName).trim(),
+    email: String(profile?.email || fallback.email).trim(),
+    onboardingComplete: !!profile?.onboarding_complete,
+    savedKey
+  };
+}
+
+async function fetchStoredOpenAIKey(userId) {
+  if (!userId || !hasSupabaseAdmin()) return '';
+  const keyPath = buildSupabaseRestPath('user_api_keys', {
+    user_id: `eq.${userId}`,
+    provider: 'eq.openai',
+    is_active: 'eq.true',
+    select: 'encrypted_key',
+    order: 'updated_at.desc',
+    limit: 1
+  });
+  const { data } = await supabaseAdminFetch(keyPath);
+  const row = Array.isArray(data) ? data[0] : null;
+  if (!row?.encrypted_key) return '';
+  return decryptStoredSecret(row.encrypted_key);
+}
+
+async function verifyOpenAIKeyServer(apiKey) {
+  const response = await fetch('https://api.openai.com/v1/models', {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`
+    }
+  });
+  if (!response.ok) {
+    let message = 'OpenAI rejected that API key.';
+    try {
+      const data = await response.json();
+      message = data?.error?.message || message;
+    } catch (_) {}
+    throw new Error(message);
+  }
+}
+
+async function upsertAccountProfile(user, displayName) {
+  const payload = {
+    id: user.id,
+    email: user.email,
+    display_name: String(displayName || '').trim().slice(0, 80),
+    onboarding_complete: true
+  };
+  const { response, data } = await supabaseAdminFetch(
+    buildSupabaseRestPath('profiles', { on_conflict: 'id' }),
+    {
+      method: 'POST',
+      headers: {
+        Prefer: 'resolution=merge-duplicates,return=representation'
+      },
+      body: payload
+    }
+  );
+  if (!response.ok) {
+    throw new Error(data?.message || 'Could not update account profile.');
+  }
+  return Array.isArray(data) ? data[0] : data;
+}
+
+async function replaceStoredOpenAIKey(user, apiKey, label = '') {
+  if (!hasSupabaseAdmin()) throw new Error('Supabase admin access is not configured.');
+  if (!validateOpenAIKey(apiKey)) throw new Error('That does not look like a valid OpenAI key.');
+  await verifyOpenAIKeyServer(apiKey);
+
+  await supabaseAdminFetch(buildSupabaseRestPath('user_api_keys', {
+    user_id: `eq.${user.id}`,
+    provider: 'eq.openai',
+    is_active: 'eq.true'
+  }), {
+    method: 'PATCH',
+    headers: {
+      Prefer: 'return=minimal'
+    },
+    body: {
+      is_active: false
+    }
+  });
+
+  const { response, data } = await supabaseAdminFetch('/rest/v1/user_api_keys', {
+    method: 'POST',
+    headers: {
+      Prefer: 'return=representation'
+    },
+    body: {
+      user_id: user.id,
+      provider: 'openai',
+      label: String(label || '').trim().slice(0, 80),
+      encrypted_key: encryptStoredSecret(apiKey),
+      key_last4: apiKey.slice(-4),
+      is_active: true
+    }
+  });
+  if (!response.ok) {
+    throw new Error(data?.message || 'Could not save your OpenAI key.');
+  }
+  return Array.isArray(data) ? data[0] : data;
+}
+
+async function deleteStoredOpenAIKey(userId) {
+  if (!userId || !hasSupabaseAdmin()) return;
+  const { response, data } = await supabaseAdminFetch(buildSupabaseRestPath('user_api_keys', {
+    user_id: `eq.${userId}`,
+    provider: 'eq.openai'
+  }), {
+    method: 'DELETE',
+    headers: {
+      Prefer: 'return=minimal'
+    }
+  });
+  if (!response.ok) {
+    throw new Error(data?.message || 'Could not delete saved key.');
+  }
+}
+
 function consumeLiveRateLimit(req) {
   const forwardedFor = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
   const ip = forwardedFor || req.socket.remoteAddress || 'unknown';
@@ -333,30 +588,19 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { authenticated: false, configured: false });
         return;
       }
-      const cookies = parseCookies(req);
-      let accessToken = cookies[ACCESS_COOKIE] || '';
-      let refreshToken = cookies[REFRESH_COOKIE] || '';
-      let user = await fetchSupabaseUser(accessToken);
-      let setCookies = [];
-      if (!user && refreshToken) {
-        const refreshed = await refreshSupabaseSession(refreshToken);
-        if (refreshed?.access_token && refreshed?.refresh_token) {
-          accessToken = refreshed.access_token;
-          refreshToken = refreshed.refresh_token;
-          setCookies = setAuthCookies(req, refreshed);
-          user = await fetchSupabaseUser(accessToken);
-        }
-      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
       if (!user) {
         sendJson(res, 200, { authenticated: false, configured: true }, {
           'Set-Cookie': clearAuthCookies(req)
         });
         return;
       }
+      const account = await fetchAccountStateForUser(user);
       sendJson(res, 200, {
         authenticated: true,
         configured: true,
-        user
+        user,
+        account
       }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
       return;
     }
@@ -396,10 +640,12 @@ const server = http.createServer(async (req, res) => {
       }
       const session = data?.session || null;
       const user = mapAuthUser(data?.user);
+      const account = user ? await fetchAccountStateForUser(user) : null;
       sendJson(res, 200, {
         ok: true,
         requiresEmailVerification: !session,
-        user
+        user,
+        account
       }, session ? { 'Set-Cookie': setAuthCookies(req, session) } : {});
       return;
     }
@@ -431,9 +677,12 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, response.status, { error: data?.msg || data?.error_description || data?.message || 'Could not sign in.' });
         return;
       }
+      const user = mapAuthUser(data?.user);
+      const account = user ? await fetchAccountStateForUser(user) : null;
       sendJson(res, 200, {
         ok: true,
-        user: mapAuthUser(data?.user)
+        user,
+        account
       }, { 'Set-Cookie': setAuthCookies(req, data) });
       return;
     }
@@ -461,6 +710,115 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && req.url === '/api/account/profile') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site account requests are not allowed.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const body = await readJsonBody(req);
+      const displayName = String(body.displayName || '').trim().slice(0, 80);
+      await upsertAccountProfile(user, displayName);
+      const account = await fetchAccountStateForUser({
+        ...user,
+        displayName
+      });
+      sendJson(res, 200, { ok: true, account }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/account/api-key') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site account requests are not allowed.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const body = await readJsonBody(req);
+      const apiKey = String(body.apiKey || '').trim();
+      const label = String(body.label || '').trim();
+      await replaceStoredOpenAIKey(user, apiKey, label);
+      const account = await fetchAccountStateForUser(user);
+      sendJson(res, 200, { ok: true, account }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/account/api-key/delete') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site account requests are not allowed.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      await deleteStoredOpenAIKey(user.id);
+      const account = await fetchAccountStateForUser(user);
+      sendJson(res, 200, { ok: true, account }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/openai/chat') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site chat requests are not allowed.' });
+        return;
+      }
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!user) {
+        sendJson(res, 401, { error: 'Sign in first.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const apiKey = await fetchStoredOpenAIKey(user.id);
+      if (!validateOpenAIKey(apiKey)) {
+        sendJson(res, 403, { error: 'No saved OpenAI key is available on this account.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      const body = await readJsonBody(req);
+      const messages = Array.isArray(body.messages) ? body.messages : [];
+      const model = String(body.model || 'gpt-4.1-mini').trim();
+      const maxTokens = Math.max(1, Math.min(4000, Number(body.maxTokens || 200)));
+      const jsonMode = !!body.jsonMode;
+      if (!messages.length) {
+        sendJson(res, 400, { error: 'Missing messages.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          temperature: 0.7,
+          messages,
+          ...(jsonMode ? { response_format: { type: 'json_object' } } : {})
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        sendJson(res, response.status, {
+          error: data?.error?.message || 'OpenAI chat request failed.'
+        }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+        return;
+      }
+      sendJson(res, 200, {
+        content: data?.choices?.[0]?.message?.content || ''
+      }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
+      return;
+    }
+
     if (req.method === 'POST' && req.url === '/api/live/call') {
       if (!isAllowedLiveRequest(req)) {
         sendJson(res, 403, { error: 'Cross-site live requests are not allowed.' });
@@ -475,19 +833,23 @@ const server = http.createServer(async (req, res) => {
         ? req.headers['x-openai-realtime-model'].trim()
         : '';
       const serverKey = ALLOW_SERVER_KEY_LIVE ? OPENAI_API_KEY : '';
-      const apiKey = byokHeader || serverKey;
+      let apiKey = byokHeader || serverKey;
+      const { user, setCookies } = await getAuthenticatedRequestState(req);
+      if (!apiKey && user) {
+        apiKey = await fetchStoredOpenAIKey(user.id);
+      }
       if (!apiKey) {
-        sendJson(res, 503, { error: 'Live mode needs an OpenAI BYOK session or an explicitly enabled server key.' });
+        sendJson(res, 503, { error: 'Live mode needs an OpenAI BYOK session, a saved account key, or an explicitly enabled server key.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
         return;
       }
       if (byokHeader && !apiKey.startsWith('sk-')) {
-        sendJson(res, 400, { error: 'Invalid OpenAI key format for live mode.' });
+        sendJson(res, 400, { error: 'Invalid OpenAI key format for live mode.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
         return;
       }
 
       const offerSdp = await readBody(req);
       if (!offerSdp.trim()) {
-        sendJson(res, 400, { error: 'Missing SDP offer.' });
+        sendJson(res, 400, { error: 'Missing SDP offer.' }, setCookies.length ? { 'Set-Cookie': setCookies } : {});
         return;
       }
 
@@ -495,7 +857,8 @@ const server = http.createServer(async (req, res) => {
       const answerSdp = await createRealtimeCall(offerSdp, apiKey, realtimeModel);
       res.writeHead(200, buildSecurityHeaders({
         'Content-Type': 'application/sdp; charset=utf-8',
-        'Cache-Control': 'no-store'
+        'Cache-Control': 'no-store',
+        ...(setCookies.length ? { 'Set-Cookie': setCookies } : {})
       }));
       res.end(answerSdp);
       return;

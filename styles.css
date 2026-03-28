@@ -328,11 +328,50 @@ html, body {
   flex-direction: column;
   gap: 10px;
 }
+.remember-key-row,
+.account-key-card,
+.auth-settings-card {
+  margin-top: 14px;
+  padding: 14px 15px;
+  border-radius: var(--rs);
+  border: 1.5px solid var(--border);
+  background: var(--surface);
+}
+.remember-key-row[hidden],
+.account-key-card[hidden] { display: none; }
+.remember-key-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text2);
+}
+.remember-key-check input {
+  margin-top: 2px;
+  accent-color: var(--text);
+}
+.account-key-status {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text2);
+}
+.account-key-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
 .auth-summary-card {
   padding: 18px;
   border-radius: var(--r);
   border: 1.5px solid var(--border);
   background: var(--surface);
+}
+.auth-settings-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
 }
 .auth-summary-label {
   font-size: 11px;
@@ -353,6 +392,11 @@ html, body {
   font-size: 13px;
   line-height: 1.6;
   color: var(--text2);
+}
+@media (min-width: 768px) {
+  .auth-settings-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* ─────────────────────────────────────────────────────
