@@ -994,20 +994,32 @@ function handleAuthSecondary() {
 }
 
 async function authRequest(path, options = {}) {
-  const response = await fetch(path, {
-    method: options.method || 'POST',
-    credentials: 'same-origin',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-  let data = {};
+  let response;
   try {
-    data = await response.json();
-  } catch (_) {}
-  if (!response.ok) throw new Error(data?.error || 'Account request failed.');
+    response = await fetch(path, {
+      method: options.method || 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+  } catch (_) {
+    throw new Error('Could not reach the account service.');
+  }
+  const raw = await response.text();
+  let data = {};
+  if (raw) {
+    try {
+      data = JSON.parse(raw);
+    } catch (_) {
+      data = { raw };
+    }
+  }
+  if (!response.ok) {
+    throw new Error(data?.error || `Account request failed (${response.status}).`);
+  }
   return data;
 }
 

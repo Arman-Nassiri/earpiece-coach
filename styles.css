@@ -213,7 +213,6 @@ html, body {
   .wordmark-sub { margin-bottom: 40px; }
   .key-top { flex: unset; }
   .gate-top { flex: unset; margin-bottom: 24px; }
-  .launch-theme-row { display: none; }
 }
 
 /* ─────────────────────────────────────────────────────
@@ -242,10 +241,13 @@ html, body {
   color: var(--text); margin-bottom: 8px;
 }
 .wordmark-sub { font-size: 15px; color: var(--text3); margin-bottom: 48px; line-height: 1.5; }
-.launch-actions { display: flex; flex-direction: row; align-items: center; gap: 10px; }
-.launch-actions .btn { flex: 1; }
-.launch-actions .icon-btn { min-height: 54px; min-width: 54px; }
-.launch-theme-row { display: none; }
+.launch-actions { display: flex; flex-direction: column; gap: 12px; }
+.launch-theme-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+.launch-theme-row .icon-btn { min-height: 48px; min-width: 48px; }
 
 /* ─────────────────────────────────────────────────────
    S-KEY
@@ -256,7 +258,7 @@ html, body {
   padding: var(--top-safe-gap) 28px calc(var(--sab) + 44px);
   display: flex; flex-direction: column; flex: 1;
 }
-.key-back-row { display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin-bottom: 28px; }
+.key-back-row { display: flex; align-items: center; justify-content: flex-start; gap: 10px; margin-bottom: 28px; flex-wrap: wrap; }
 .key-back {
   min-width: 44px; min-height: 44px; border-radius: 12px;
   background: var(--surface); border: 1.5px solid var(--border);
