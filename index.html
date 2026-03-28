@@ -43,6 +43,7 @@
       <div class="wordmark-sub"><span id="typewriterText"></span><span class="tw-cursor">|</span></div>
     </div>
     <div class="launch-actions">
+      <button class="btn ghost" onclick="beginGoogleOAuth('/#auth')">Continue with Google</button>
       <button class="btn" onclick="go('s-key')">Bring Your Own Key</button>
       <div class="launch-secondary-row">
         <button class="btn ghost launch-account-btn" onclick="openAccountScreen()">Sign In / Sign Up</button>
@@ -141,6 +142,7 @@
       <div class="key-sub" id="authSubcopy">Secure sign-in for Cue. Billing and saved API keys will live here.</div>
 
       <div id="authSignedOut">
+        <button class="btn ghost oauth-google-btn" type="button" onclick="beginGoogleOAuth('/#auth')">Continue with Google</button>
         <div class="provider-tabs auth-tabs">
           <button class="ptab active" id="authTabSignin" type="button" onclick="setAuthMode('signin')">Sign In</button>
           <button class="ptab" id="authTabSignup" type="button" onclick="setAuthMode('signup')">Create Account</button>

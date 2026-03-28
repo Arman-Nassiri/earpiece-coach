@@ -105,6 +105,15 @@ async function readJsonBody(req) {
   }
 }
 
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function serveFile(filePath, res) {
   try {
     const data = await fs.promises.readFile(filePath);
@@ -131,6 +140,13 @@ function getExpectedOrigin(req) {
   const proto = (req.headers['x-forwarded-proto'] || (HOST === '127.0.0.1' ? 'http' : 'https')).split(',')[0].trim();
   const host = (req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
   return host ? `${proto}://${host}` : '';
+}
+
+function sanitizeNextPath(input, fallback = '/#auth') {
+  const value = String(input || '').trim();
+  if (!value.startsWith('/')) return fallback;
+  if (value.startsWith('//')) return fallback;
+  return value;
 }
 
 function getCookieDomain(req) {
@@ -581,8 +597,109 @@ async function createRealtimeCall(offerSdp, apiKey, realtimeModel = REALTIME_MOD
   return response.text();
 }
 
+function buildGoogleOAuthCallbackPage(req) {
+  const next = sanitizeNextPath(new URL(req.url, getExpectedOrigin(req) || 'http://localhost').searchParams.get('next'));
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Google Sign-In</title>
+  <style>
+    body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#f5f3ef;color:#18170f;display:flex;min-height:100vh;align-items:center;justify-content:center;padding:24px}
+    .card{width:min(440px,100%);background:#fff;border:1px solid #e0ddd6;border-radius:18px;padding:28px}
+    h1{margin:0 0 8px;font-size:28px}
+    p{margin:0 0 14px;line-height:1.6;color:#46443c}
+    .muted{color:#8c8980;font-size:14px}
+    .spinner{width:28px;height:28px;border:2px solid #c8c4ba;border-top-color:#18170f;border-radius:999px;animation:spin .8s linear infinite;margin-bottom:16px}
+    .error{color:#d4380d}
+    a{color:#18170f}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="spinner" id="spinner"></div>
+    <h1 id="title">Finishing Google sign-in</h1>
+    <p id="body">Verifying the Google session and attaching it to Cue.</p>
+    <p class="muted" id="meta">You will be redirected automatically.</p>
+  </div>
+  <script>
+    const next = ${JSON.stringify(next)};
+    const title = document.getElementById('title');
+    const body = document.getElementById('body');
+    const meta = document.getElementById('meta');
+    const spinner = document.getElementById('spinner');
+    const query = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const queryError = query.get('error_description') || query.get('error');
+    const hashError = hash.get('error_description') || hash.get('error');
+    const accessToken = hash.get('access_token');
+    const refreshToken = hash.get('refresh_token');
+    const expiresIn = hash.get('expires_in');
+
+    function fail(message) {
+      spinner.style.display = 'none';
+      title.textContent = 'Google sign-in failed';
+      body.textContent = message;
+      body.classList.add('error');
+      meta.innerHTML = '<a href="/#auth">Back to account</a>';
+    }
+
+    async function complete() {
+      if (queryError || hashError) {
+        fail(queryError || hashError);
+        return;
+      }
+      if (!accessToken || !refreshToken) {
+        fail('Missing Google session tokens from Supabase.');
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/oauth/google/complete', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            accessToken,
+            refreshToken,
+            expiresIn
+          })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Could not complete Google sign-in.');
+        window.location.replace(next);
+      } catch (error) {
+        fail(error.message || 'Could not complete Google sign-in.');
+      }
+    }
+
+    complete();
+  </script>
+</body>
+</html>`;
+}
+
 const server = http.createServer(async (req, res) => {
   try {
+    if (req.method === 'GET' && req.url.startsWith('/api/auth/google/start')) {
+      if (!hasSupabaseAuth()) {
+        sendJson(res, 503, { error: 'Supabase auth is not configured.' });
+        return;
+      }
+      const currentUrl = new URL(req.url, getExpectedOrigin(req) || 'http://localhost');
+      const next = sanitizeNextPath(currentUrl.searchParams.get('next'));
+      const origin = getExpectedOrigin(req);
+      const redirectTo = `${origin}/auth/google/callback?next=${encodeURIComponent(next)}`;
+      const location = `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+      res.writeHead(302, buildSecurityHeaders({
+        'Cache-Control': 'no-store',
+        Location: location
+      }));
+      res.end();
+      return;
+    }
+
     if (req.method === 'GET' && req.url === '/api/auth/session') {
       if (!hasSupabaseAuth()) {
         sendJson(res, 200, { authenticated: false, configured: false });
@@ -706,6 +823,39 @@ const server = http.createServer(async (req, res) => {
       }
       sendJson(res, 200, { ok: true }, {
         'Set-Cookie': clearAuthCookies(req)
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && req.url === '/api/auth/oauth/google/complete') {
+      if (!isAllowedSameOriginRequest(req)) {
+        sendJson(res, 403, { error: 'Cross-site auth requests are not allowed.' });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const accessToken = String(body.accessToken || '').trim();
+      const refreshToken = String(body.refreshToken || '').trim();
+      const expiresIn = Math.max(60, Number(body.expiresIn || 3600));
+      if (!accessToken || !refreshToken) {
+        sendJson(res, 400, { error: 'Missing OAuth session tokens.' });
+        return;
+      }
+      const user = await fetchSupabaseUser(accessToken);
+      if (!user) {
+        sendJson(res, 401, { error: 'Supabase rejected the Google session.' });
+        return;
+      }
+      const account = await fetchAccountStateForUser(user);
+      sendJson(res, 200, {
+        ok: true,
+        user,
+        account
+      }, {
+        'Set-Cookie': setAuthCookies(req, {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          expires_in: expiresIn
+        })
       });
       return;
     }
@@ -866,6 +1016,15 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       sendJson(res, 405, { error: 'Method not allowed' });
+      return;
+    }
+
+    if (req.method === 'GET' && req.url.startsWith('/auth/google/callback')) {
+      res.writeHead(200, buildSecurityHeaders({
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store'
+      }));
+      res.end(buildGoogleOAuthCallbackPage(req));
       return;
     }
 

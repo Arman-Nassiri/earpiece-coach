@@ -979,6 +979,10 @@ function openAccountScreen() {
   if (!authState.checked) refreshAuthState({ silent: true });
 }
 
+function beginGoogleOAuth(next = '/#auth') {
+  window.location.href = `/api/auth/google/start?next=${encodeURIComponent(next)}`;
+}
+
 function continueFromAccount() {
   go(hasAppAccessCredential() ? 's-home' : 's-key');
 }
