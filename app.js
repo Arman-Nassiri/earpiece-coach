@@ -382,6 +382,7 @@ const LIBRARY = [
     batna:'',
     zopa:'' }
 ];
+const FREE_SCENARIO_IDS = new Set(['salary', 'rent', 'car', 'freelance', 'joboffer']);
 
 const LIVE_SCENARIO_PROMPTS = {
   salary: {
@@ -655,8 +656,52 @@ function hydrateScenario(savedScenario) {
 
 function syncSelectedScenarioCard() {
   document.querySelectorAll('.scenario-card').forEach((card, idx) => {
-    card.classList.toggle('selected', !!currentSC && LIBRARY[idx]?.id === currentSC.id);
+    const scenario = LIBRARY[idx];
+    const locked = isScenarioLocked(scenario);
+    card.classList.toggle('locked', locked);
+    card.classList.toggle('selected', !locked && !!currentSC && scenario?.id === currentSC.id);
+    card.setAttribute('aria-disabled', locked ? 'true' : 'false');
+
+    const gate = card.querySelector('.sc-gate');
+    const lockCopy = card.querySelector('.sc-lock-copy');
+    const affordance = card.querySelector('.sc-arr');
+    if (gate) gate.hidden = !locked;
+    if (lockCopy) lockCopy.hidden = !locked;
+    if (affordance) affordance.innerHTML = locked ? '' : '&#8250;';
   });
+}
+
+function scenarioNeedsAccount(sc) {
+  return !!sc && !FREE_SCENARIO_IDS.has(sc.id);
+}
+
+function isScenarioLocked(sc) {
+  return scenarioNeedsAccount(sc) && !authState.authenticated;
+}
+
+function enforceScenarioAccess() {
+  if (!isScenarioLocked(currentSC)) return true;
+  currentSC = null;
+  negotiationDraft = null;
+  generatedOpener = '';
+  return false;
+}
+
+function renderScenarioAccessState() {
+  const banner = document.getElementById('homeAccessBanner');
+  if (banner) banner.hidden = authState.authenticated;
+  enforceScenarioAccess();
+  syncSelectedScenarioCard();
+}
+
+async function promptScenarioAccess(sc) {
+  const name = sc?.name || 'this scenario';
+  const confirmed = await showModal({
+    title: 'Unlock the full library',
+    body: `${name} is available once you create a Cue account. Your first five BYOK scenarios stay open, and the rest unlock when you sign in.`,
+    confirmText: 'Open Account'
+  });
+  if (confirmed) openAccountScreen();
 }
 
 function buildSessionSnapshot() {
@@ -742,15 +787,21 @@ function startSessionPersistence() {
   LIBRARY.forEach(sc => {
     const div = document.createElement('div');
     div.className = 'scenario-card';
+    div.dataset.scenarioId = sc.id;
     div.innerHTML = `
       <div class="sc-text">
-        <div class="sc-name">${sc.name}</div>
+        <div class="sc-head">
+          <div class="sc-name">${sc.name}</div>
+          <div class="sc-gate" hidden>Account</div>
+        </div>
         <div class="sc-sub">${sc.sub}</div>
+        <div class="sc-lock-copy" hidden>Unlock with a free account to use this scenario.</div>
       </div>
       <div class="sc-arr">&#8250;</div>`;
     div.addEventListener('click', () => pickSC(div, sc));
     list.appendChild(div);
   });
+  renderScenarioAccessState();
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -919,7 +970,9 @@ function renderAuthState() {
   ].filter(Boolean);
 
   accountButtons.forEach(btn => {
-    btn.textContent = authState.authenticated ? getAuthDisplayCopy() : 'Account';
+    btn.classList.toggle('signed-in', authState.authenticated);
+    btn.title = authState.authenticated ? `${getAuthDisplayCopy()} account` : 'Account';
+    btn.setAttribute('aria-label', authState.authenticated ? `${getAuthDisplayCopy()} account` : 'Account');
   });
 
   if (tabSignin) tabSignin.classList.toggle('active', authMode === 'signin');
@@ -978,6 +1031,7 @@ function renderAuthState() {
   }
   if (keyDeleteBtn) keyDeleteBtn.style.display = accountHasSavedOpenAIKey() ? 'block' : 'none';
   syncSavedKeyUI();
+  renderScenarioAccessState();
 }
 
 function setAuthMode(mode) {
@@ -1431,7 +1485,11 @@ document.getElementById('azureKey').addEventListener('keydown', e => { if (e.key
 // ─────────────────────────────────────────────────────────────────────────────
 // HOME
 // ─────────────────────────────────────────────────────────────────────────────
-function pickSC(card, sc) {
+async function pickSC(card, sc) {
+  if (isScenarioLocked(sc)) {
+    await promptScenarioAccess(sc);
+    return;
+  }
   document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('selected'));
   card.classList.add('selected');
   currentSC = sc;
@@ -1440,6 +1498,10 @@ function pickSC(card, sc) {
 
 function goPrep() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
+  if (isScenarioLocked(currentSC)) {
+    promptScenarioAccess(currentSC);
+    return;
+  }
   ensureNegotiationDraft();
   generatedOpener = ''; buildPrep(); go('s-prep');
 }
@@ -2004,6 +2066,10 @@ async function practiceSend() {
 
 function goPractice() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
+  if (isScenarioLocked(currentSC)) {
+    promptScenarioAccess(currentSC);
+    return;
+  }
   ensureNegotiationDraft();
   const values = getLiveValues();
   if (currentSC.id === 'custom' && !values.customName && !values.anc.some(Boolean) && !values.batna && !values.zopa) {
@@ -2105,6 +2171,10 @@ async function practiceVoiceLetThemOpen() {
 
 function goVoicePractice() {
   if (!currentSC) { toast('Choose a scenario first'); return; }
+  if (isScenarioLocked(currentSC)) {
+    promptScenarioAccess(currentSC);
+    return;
+  }
   ensureNegotiationDraft();
   const values = getLiveValues();
   if (currentSC.id === 'custom' && !values.customName && !values.anc.some(Boolean) && !values.batna && !values.zopa) {
@@ -2960,6 +3030,11 @@ Return only the line.`
 }
 
 function goLive() {
+  if (!currentSC) { toast('Choose a scenario first'); return; }
+  if (isScenarioLocked(currentSC)) {
+    promptScenarioAccess(currentSC);
+    return;
+  }
   realtimeMode = 'coach';
   const startupError = getLiveStartupError();
   if (startupError) {
@@ -3537,6 +3612,10 @@ function triggerScenarioFill(fill) {
   // Find the scenario card
   const sc = LIBRARY.find(s => s.id === fill.id) || LIBRARY.find(s => s.id === 'custom');
   if (!sc) return;
+  if (isScenarioLocked(sc)) {
+    promptScenarioAccess(sc);
+    return;
+  }
   // Build a modified scenario with the filled values
   const filled = {
     ...sc,
@@ -3719,7 +3798,7 @@ function getRestoredScreenId(snapshot) {
   if (!hasAppAccessCredential()) {
     return ['s-key', 's-auth'].includes(requested) ? requested : 's-launch';
   }
-  if (!currentSC && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(requested)) {
+  if ((!currentSC || isScenarioLocked(currentSC)) && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(requested)) {
     return 's-home';
   }
   return requested;
@@ -3807,6 +3886,7 @@ function restoreSessionState() {
     negotiationDraft = null;
     if (currentSC) initializeNegotiationDraft(currentSC);
     if (snapshot.negotiationDraft) setNegotiationDraft(snapshot.negotiationDraft);
+    enforceScenarioAccess();
     generatedOpener = String(snapshot.generatedOpener || '').trim();
     practiceDifficulty = snapshot.practiceDifficulty in PRACTICE_DIFFICULTIES ? snapshot.practiceDifficulty : 'balanced';
     practiceHistory = Array.isArray(snapshot.practiceHistory) ? snapshot.practiceHistory : [];
@@ -3845,7 +3925,7 @@ window.addEventListener('hashchange', () => {
     go(['s-key', 's-auth'].includes(target) ? target : 's-launch', { replaceHash: true });
     return;
   }
-  if (!currentSC && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(target)) {
+  if ((!currentSC || isScenarioLocked(currentSC)) && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(target)) {
     go('s-home', { replaceHash: true });
     return;
   }

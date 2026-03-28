@@ -327,7 +327,13 @@
       <div class="home-sub">What are you walking into?</div>
     </div>
     <div class="home-sidebar-actions">
-      <button class="icon-btn contact-btn" onclick="openAccountScreen()" title="Account" id="accountHomeBtn">Account</button>
+      <button class="icon-btn account-icon-btn" onclick="openAccountScreen()" title="Account" id="accountHomeBtn" aria-label="Account">
+        <span class="account-avatar-dot" aria-hidden="true"></span>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="8" cy="5.2" r="2.6" stroke="currentColor" stroke-width="1.4"/>
+          <path d="M3.2 13.2C3.9 10.95 5.62 9.8 8 9.8C10.38 9.8 12.1 10.95 12.8 13.2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+        </svg>
+      </button>
       <a class="icon-btn contact-btn" href="mailto:gibselcue@gmail.com" onclick="openContact(event)" title="Contact us">Contact</a>
       <button class="icon-btn" id="themeBtn" onclick="toggleTheme()">&#9788;</button>
       <button class="icon-btn" onclick="changeKey()" title="Change API key">&#8644;</button>
@@ -341,6 +347,13 @@
 
   <div class="home-main">
     <div class="section-label">Scenario</div>
+    <div class="home-access-banner" id="homeAccessBanner" hidden>
+      <div class="home-access-banner-copy">
+        <div class="home-access-banner-title">First five scenarios are open in BYOK mode.</div>
+        <div class="home-access-banner-sub">Create a free account to unlock the full negotiation library and keep your setup synced.</div>
+      </div>
+      <button class="home-access-banner-btn" type="button" onclick="openAccountScreen()">Unlock All</button>
+    </div>
     <div class="card-list" id="cardList"></div>
     <div class="home-cta">
       <button class="btn" onclick="goPrep()">See Prep Brief</button>
