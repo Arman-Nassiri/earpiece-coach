@@ -242,12 +242,18 @@ html, body {
 }
 .wordmark-sub { font-size: 15px; color: var(--text3); margin-bottom: 48px; line-height: 1.5; }
 .launch-actions { display: flex; flex-direction: column; gap: 12px; }
-.launch-theme-row {
+.launch-secondary-row {
   display: flex;
-  justify-content: center;
-  margin-top: 16px;
+  align-items: center;
+  gap: 10px;
 }
-.launch-theme-row .icon-btn { min-height: 48px; min-width: 48px; }
+.launch-account-btn {
+  flex: 1;
+}
+.launch-theme-btn {
+  min-height: 54px;
+  min-width: 54px;
+}
 
 /* ─────────────────────────────────────────────────────
    S-KEY
