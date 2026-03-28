@@ -910,6 +910,15 @@ function hasAppAccessCredential() {
   return SecureStore.has() || accountHasSavedOpenAIKey();
 }
 
+function getSignedInDefaultScreen() {
+  return hasAppAccessCredential() ? 's-home' : 's-key';
+}
+
+function getDefaultEntryScreen() {
+  if (authState.authenticated) return getSignedInDefaultScreen();
+  return hasAppAccessCredential() ? 's-home' : 's-launch';
+}
+
 function getAuthDisplayCopy() {
   const displayName = String(authState.account?.displayName || authState.user?.displayName || '').trim();
   if (displayName) return displayName;
@@ -1143,6 +1152,9 @@ async function refreshAuthState({ silent = false } = {}) {
   }
   renderAuthState();
   renderPlansState();
+  if (!isRestoringSession && authState.authenticated && getActiveScreenId() === 's-launch') {
+    go(getSignedInDefaultScreen(), { replaceHash: true });
+  }
 }
 
 async function submitAuth() {
@@ -3793,9 +3805,12 @@ function renderChatState() {
 }
 
 function getRestoredScreenId(snapshot) {
-  const requested = getScreenForRoute() || snapshot?.activeScreen || (hasAppAccessCredential() ? 's-home' : 's-launch');
+  const requested = getScreenForRoute() || snapshot?.activeScreen || getDefaultEntryScreen();
   if (requested === 's-plans') return 's-plans';
-  if (!hasAppAccessCredential()) {
+  if (authState.authenticated && requested === 's-launch') {
+    return getSignedInDefaultScreen();
+  }
+  if (!authState.authenticated && !hasAppAccessCredential()) {
     return ['s-key', 's-auth'].includes(requested) ? requested : 's-launch';
   }
   if ((!currentSC || isScenarioLocked(currentSC)) && ['s-prep', 's-practice', 's-practice-voice', 's-live', 's-practice-review'].includes(requested)) {
@@ -3854,7 +3869,7 @@ function restoreScreenFromSession(screenId) {
       go('s-chat', { replaceHash: true });
       return;
     default:
-      go('s-launch', { replaceHash: true });
+      go(getDefaultEntryScreen(), { replaceHash: true });
   }
 }
 
@@ -3868,7 +3883,7 @@ function restoreSessionState() {
       go(requested, { replaceHash: true });
       return;
     }
-    const target = hasAppAccessCredential() ? 's-home' : getActiveScreenId();
+    const target = getDefaultEntryScreen();
     go(target, { replaceHash: true });
     return;
   }
@@ -3906,7 +3921,7 @@ function restoreSessionState() {
     syncEarUI();
     restoreScreenFromSession(getRestoredScreenId(snapshot));
   } catch (_) {
-    go('s-launch', { replaceHash: true });
+    go(getDefaultEntryScreen(), { replaceHash: true });
   } finally {
     isRestoringSession = false;
     persistSessionState();
@@ -3917,11 +3932,15 @@ window.addEventListener('hashchange', () => {
   if (isRestoringSession) return;
   const target = getScreenForRoute();
   if (!target || target === getActiveScreenId()) return;
+  if (authState.authenticated && target === 's-launch') {
+    go(getSignedInDefaultScreen(), { replaceHash: true });
+    return;
+  }
   if (target === 's-plans') {
     restoreScreenFromSession(target);
     return;
   }
-  if (!hasAppAccessCredential()) {
+  if (!authState.authenticated && !hasAppAccessCredential()) {
     go(['s-key', 's-auth'].includes(target) ? target : 's-launch', { replaceHash: true });
     return;
   }
