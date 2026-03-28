@@ -41,30 +41,11 @@
     <div class="launch-top">
       <div class="wordmark">Gibsel Cue</div>
       <div class="wordmark-sub"><span id="typewriterText"></span><span class="tw-cursor">|</span></div>
-      <div class="launch-intro-card">
-        <div class="launch-intro-eyebrow">Account-First Access</div>
-        <div class="launch-intro-title">Every user starts with an account now.</div>
-        <div class="launch-intro-copy">Free keeps Cue tight with saved BYOK, 3 monthly sessions, and 3 starter scenarios. Pro and Exotic unlock the full product.</div>
-        <div class="launch-plan-row">
-          <div class="launch-plan-mini">
-            <span class="launch-plan-mini-name">Free</span>
-            <span class="launch-plan-mini-meta">3 sessions · 3 scenarios</span>
-          </div>
-          <div class="launch-plan-mini">
-            <span class="launch-plan-mini-name">Pro</span>
-            <span class="launch-plan-mini-meta">Full library · debriefs</span>
-          </div>
-          <div class="launch-plan-mini">
-            <span class="launch-plan-mini-name">Exotic</span>
-            <span class="launch-plan-mini-meta">Strategy + custom workflow</span>
-          </div>
-        </div>
-      </div>
     </div>
     <div class="launch-actions">
-      <button class="btn" onclick="openAccountScreen()">Create Account</button>
+      <button class="btn" onclick="setAuthMode('signin'); openAccountScreen()">Sign In</button>
       <div class="launch-secondary-row">
-        <button class="btn ghost launch-account-btn" onclick="setAuthMode('signin'); openAccountScreen()">Sign In</button>
+        <button class="btn ghost launch-account-btn" onclick="setAuthMode('signup'); openAccountScreen()">Create Account</button>
         <button class="btn ghost launch-theme-btn" id="themeBtnLaunch" onclick="toggleTheme()" title="Toggle theme">&#9788;</button>
       </div>
     </div>
